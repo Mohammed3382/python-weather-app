@@ -1095,7 +1095,7 @@ def apply_theme(background_path):
         }}
         .wear-visual-card {{
             border-radius: 26px;
-            padding: 0.95rem 0.95rem 1rem 0.95rem;
+            padding: 0.95rem 0.95rem 4.3rem 0.95rem;
             margin-bottom: 0.95rem;
             background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.07));
             border: 1px solid rgba(255,255,255,0.12);
@@ -1211,6 +1211,17 @@ def apply_theme(background_path):
             border-color: rgba(255,255,255,0.2);
             color: #ffffff;
         }}
+        .wear-refresh-anchor + div[data-testid="stButton"] {{
+            margin-top: -4.05rem;
+            margin-bottom: 0.7rem;
+            padding: 0 0.95rem 0.95rem 0.95rem;
+            position: relative;
+            z-index: 4;
+        }}
+        .wear-refresh-anchor + div[data-testid="stButton"] button {{
+            min-height: 2.9rem;
+            border-radius: 18px;
+        }}
         @media (max-width: 900px) {{
             .intel-alert-banner-grid,
             .intel-support-grid,
@@ -1223,6 +1234,9 @@ def apply_theme(background_path):
             }}
             .wear-visual-image {{
                 height: 136px;
+            }}
+            .wear-refresh-anchor + div[data-testid="stButton"] {{
+                margin-top: -3.8rem;
             }}
             .stTabs [data-baseweb="tab-list"] {{
                 width: 100%;
@@ -2418,7 +2432,6 @@ def render_visual_clothing_grid(items, state_prefix="wear"):
                     f"<span class='wear-visual-badge'>{escape(str(badge))}</span>"
                     for badge in variant.get("badges", [])
                 )
-                source_url = escape(str(variant.get("source_url") or "#"), quote=True)
                 card_html = f"""
                 <div class="wear-visual-card">
                     <div class="wear-visual-header">
@@ -2436,12 +2449,11 @@ def render_visual_clothing_grid(items, state_prefix="wear"):
                         <div class="wear-visual-count">Style {resolved_index + 1} / {len(variants)}</div>
                     </div>
                     <div class="wear-visual-badges">{badges_html}</div>
-                    <div class="wear-visual-body">{escape(str(item.get("body") or ""))}</div>
-                    <div class="wear-visual-note">{escape(str(variant.get("note") or ""))}</div>
-                    <a class="wear-visual-link" href="{source_url}" target="_blank" rel="noopener noreferrer">Open Reference</a>
+                    <div class="wear-visual-body">{escape(str(variant.get("note") or item.get("body") or ""))}</div>
                 </div>
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
+                st.markdown("<div class='wear-refresh-anchor'></div>", unsafe_allow_html=True)
                 if len(variants) > 1 and st.button(
                     "Refresh Style",
                     key=f"{state_key}-refresh",
