@@ -1095,8 +1095,8 @@ def apply_theme(background_path):
         }}
         .wear-visual-card {{
             border-radius: 26px;
-            padding: 0.95rem 0.95rem 4.3rem 0.95rem;
-            margin-bottom: 0.95rem;
+            padding: 0.95rem 0.95rem 5.35rem 0.95rem;
+            margin-bottom: 0;
             background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.07));
             border: 1px solid rgba(255,255,255,0.12);
             box-shadow: 0 16px 38px rgba(4, 15, 32, 0.15);
@@ -1212,15 +1212,17 @@ def apply_theme(background_path):
             color: #ffffff;
         }}
         .wear-refresh-anchor + div[data-testid="stButton"] {{
-            margin-top: -4.05rem;
-            margin-bottom: 0.7rem;
+            margin-top: 0;
+            margin-bottom: -4.95rem;
             padding: 0 0.95rem 0.95rem 0.95rem;
             position: relative;
+            top: -5.15rem;
             z-index: 4;
         }}
         .wear-refresh-anchor + div[data-testid="stButton"] button {{
             min-height: 2.9rem;
             border-radius: 18px;
+            box-shadow: none;
         }}
         @media (max-width: 900px) {{
             .intel-alert-banner-grid,
@@ -1236,7 +1238,8 @@ def apply_theme(background_path):
                 height: 136px;
             }}
             .wear-refresh-anchor + div[data-testid="stButton"] {{
-                margin-top: -3.8rem;
+                margin-bottom: -4.45rem;
+                top: -4.75rem;
             }}
             .stTabs [data-baseweb="tab-list"] {{
                 width: 100%;
@@ -2407,9 +2410,240 @@ def _select_unique_wear_variant(variants, preferred_index, used_image_urls):
     return normalized_index, variants[normalized_index]
 
 
+def _render_visual_clothing_card_component(item, variants, initial_index, component_key):
+    payload = {
+        "eyebrow": str(item.get("eyebrow", "Recommendation")),
+        "title": str(item.get("title", "Suggested Piece")),
+        "icon": str(item.get("icon", "•")),
+        "initial_index": int(initial_index),
+        "variants": [
+            {
+                "style_name": str(variant.get("style_name", "Style option")),
+                "image_url": str(variant.get("image_url", "")),
+                "note": str(variant.get("note", "") or item.get("body", "")),
+                "badges": [str(badge) for badge in variant.get("badges", [])],
+            }
+            for variant in variants
+        ],
+    }
+    payload_json = json.dumps(payload)
+    html = f"""
+    <html>
+      <head>
+        <style>
+          :root {{ color-scheme: dark; }}
+          body {{
+            margin: 0;
+            background: transparent;
+            font-family: "Segoe UI", Arial, sans-serif;
+            color: #eef8ff;
+          }}
+          .wear-card {{
+            border-radius: 26px;
+            padding: 0.95rem;
+            background: linear-gradient(180deg, rgba(112, 152, 200, 0.58), rgba(78, 120, 170, 0.38));
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: 0 16px 38px rgba(4, 15, 32, 0.15);
+            box-sizing: border-box;
+            min-height: 100%;
+          }}
+          .wear-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 0.8rem;
+          }}
+          .wear-kicker {{
+            font-size: 0.7rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            opacity: 0.74;
+          }}
+          .wear-title {{
+            margin-top: 0.28rem;
+            font-size: 1.05rem;
+            font-weight: 700;
+            line-height: 1.3;
+          }}
+          .wear-icon {{
+            width: 2.85rem;
+            height: 2.85rem;
+            border-radius: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.1);
+            font-size: 1.18rem;
+            flex-shrink: 0;
+          }}
+          .wear-image-shell {{
+            margin-top: 0.9rem;
+            border-radius: 22px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(242, 246, 251, 0.96));
+            min-height: 182px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.85rem;
+            box-sizing: border-box;
+          }}
+          .wear-image {{
+            display: block;
+            width: 100%;
+            height: 150px;
+            object-fit: contain;
+          }}
+          .wear-style-row {{
+            margin-top: 0.85rem;
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            align-items: center;
+            flex-wrap: wrap;
+          }}
+          .wear-style-name {{
+            font-size: 0.96rem;
+            font-weight: 700;
+          }}
+          .wear-style-count {{
+            font-size: 0.76rem;
+            opacity: 0.68;
+          }}
+          .wear-badges {{
+            margin-top: 0.65rem;
+            display: flex;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+          }}
+          .wear-badge {{
+            padding: 0.3rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.08);
+            font-size: 0.73rem;
+            opacity: 0.88;
+          }}
+          .wear-copy {{
+            margin-top: 0.82rem;
+            font-size: 0.89rem;
+            line-height: 1.62;
+            opacity: 0.85;
+          }}
+          .wear-refresh {{
+            width: 100%;
+            min-height: 2.9rem;
+            margin-top: 0.9rem;
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06));
+            color: #eef8ff;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+          }}
+          .wear-refresh:hover {{
+            border-color: rgba(255,255,255,0.22);
+            color: #ffffff;
+          }}
+        </style>
+      </head>
+      <body>
+        <div class="wear-card">
+          <div class="wear-header">
+            <div>
+              <div class="wear-kicker" id="wear-kicker-{component_key}"></div>
+              <div class="wear-title" id="wear-title-{component_key}"></div>
+            </div>
+            <div class="wear-icon" id="wear-icon-{component_key}"></div>
+          </div>
+          <div class="wear-image-shell">
+            <img class="wear-image" id="wear-image-{component_key}" alt="">
+          </div>
+          <div class="wear-style-row">
+            <div class="wear-style-name" id="wear-style-name-{component_key}"></div>
+            <div class="wear-style-count" id="wear-style-count-{component_key}"></div>
+          </div>
+          <div class="wear-badges" id="wear-badges-{component_key}"></div>
+          <div class="wear-copy" id="wear-copy-{component_key}"></div>
+          <button class="wear-refresh" id="wear-refresh-{component_key}" type="button">Refresh Style</button>
+        </div>
+        <script>
+          const payload = {payload_json};
+          let index = payload.initial_index || 0;
+          const kickerNode = document.getElementById("wear-kicker-{component_key}");
+          const titleNode = document.getElementById("wear-title-{component_key}");
+          const iconNode = document.getElementById("wear-icon-{component_key}");
+          const imageNode = document.getElementById("wear-image-{component_key}");
+          const styleNameNode = document.getElementById("wear-style-name-{component_key}");
+          const styleCountNode = document.getElementById("wear-style-count-{component_key}");
+          const badgesNode = document.getElementById("wear-badges-{component_key}");
+          const copyNode = document.getElementById("wear-copy-{component_key}");
+          const refreshNode = document.getElementById("wear-refresh-{component_key}");
+
+          kickerNode.textContent = payload.eyebrow;
+          titleNode.textContent = payload.title;
+          iconNode.textContent = payload.icon;
+
+          function renderCard() {{
+            const variants = payload.variants || [];
+            if (!variants.length) return;
+            const safeIndex = ((index % variants.length) + variants.length) % variants.length;
+            const variant = variants[safeIndex];
+            imageNode.src = variant.image_url || "";
+            imageNode.alt = variant.style_name || payload.title || "Clothing recommendation";
+            styleNameNode.textContent = variant.style_name || "Style option";
+            styleCountNode.textContent = `Style ${{safeIndex + 1}} / ${{variants.length}}`;
+            copyNode.textContent = variant.note || "";
+            badgesNode.innerHTML = (variant.badges || []).map((badge) => `<span class="wear-badge">${{badge}}</span>`).join("");
+          }}
+
+          refreshNode.addEventListener("click", () => {{
+            const variants = payload.variants || [];
+            if (!variants.length) return;
+            index = (index + 1) % variants.length;
+            renderCard();
+          }});
+
+          renderCard();
+        </script>
+      </body>
+    </html>
+    """
+    components.html(html, height=430, scrolling=False)
+
+
 def render_visual_clothing_grid(items, state_prefix="wear"):
     if not items:
         return
+
+    used_image_urls = set()
+
+    for row_start in range(0, len(items), 3):
+        row_columns = st.columns(3)
+        for item, column in zip(items[row_start : row_start + 3], row_columns):
+            with column:
+                variants = item.get("variants") or []
+                if not variants:
+                    render_guidance_card_grid([item], grid_variant="wear")
+                    continue
+
+                state_key = _wear_variant_state_key(state_prefix, item)
+                current_index = int(st.session_state.get(state_key, 0)) % len(variants)
+                resolved_index, variant = _select_unique_wear_variant(variants, current_index, used_image_urls)
+                variant_url = str(variant.get("image_url") or "")
+                if variant_url:
+                    used_image_urls.add(variant_url)
+                _render_visual_clothing_card_component(
+                    item,
+                    variants,
+                    resolved_index,
+                    component_key=state_key.replace("_", "-"),
+                )
+
+    return
 
     used_image_urls = set()
 
@@ -2457,6 +2691,564 @@ def render_visual_clothing_grid(items, state_prefix="wear"):
                 if len(variants) > 1 and st.button(
                     "Refresh Style",
                     key=f"{state_key}-refresh",
+                    type="secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state[state_key] = (resolved_index + 1) % len(variants)
+                    st.rerun()
+
+
+def _render_visual_clothing_card_component(item, variants, initial_index, component_key):
+    payload = {
+        "eyebrow": str(item.get("eyebrow", "Recommendation")),
+        "title": str(item.get("title", "Suggested Piece")),
+        "icon": str(item.get("icon", "\u2022")),
+        "initial_index": int(initial_index),
+        "variants": [
+            {
+                "style_name": str(variant.get("style_name", "Style option")),
+                "image_url": str(variant.get("image_url", "")),
+                "note": str(variant.get("note", "") or item.get("body", "")),
+                "badges": [str(badge) for badge in variant.get("badges", [])],
+            }
+            for variant in variants
+        ],
+    }
+    payload_json = json.dumps(payload)
+    html = f"""
+    <html>
+      <head>
+        <style>
+          :root {{ color-scheme: dark; }}
+          html, body {{
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            font-family: "Segoe UI", Arial, sans-serif;
+            color: #eef8ff;
+          }}
+          .wear-card {{
+            border-radius: 26px;
+            padding: 0.95rem;
+            background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.07));
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 16px 38px rgba(4, 15, 32, 0.15);
+            box-sizing: border-box;
+            backdrop-filter: blur(14px);
+          }}
+          .wear-header {{
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.85rem;
+          }}
+          .wear-kicker {{
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            opacity: 0.7;
+          }}
+          .wear-title {{
+            margin-top: 0.28rem;
+            font-size: 1.08rem;
+            font-weight: 700;
+            line-height: 1.3;
+          }}
+          .wear-icon {{
+            width: 2.9rem;
+            height: 2.9rem;
+            border-radius: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.1);
+            font-size: 1.2rem;
+            flex-shrink: 0;
+          }}
+          .wear-image-shell {{
+            margin-top: 0.9rem;
+            border-radius: 22px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(242, 246, 251, 0.96));
+            min-height: 182px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.85rem;
+            box-sizing: border-box;
+          }}
+          .wear-image {{
+            display: block;
+            width: 100%;
+            height: 150px;
+            object-fit: contain;
+            border-radius: 18px;
+          }}
+          .wear-style-row {{
+            margin-top: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+          }}
+          .wear-style-name {{
+            font-size: 0.96rem;
+            font-weight: 700;
+          }}
+          .wear-style-count {{
+            font-size: 0.76rem;
+            opacity: 0.68;
+          }}
+          .wear-badges {{
+            margin-top: 0.65rem;
+            display: flex;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+          }}
+          .wear-badge {{
+            padding: 0.3rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.08);
+            font-size: 0.73rem;
+            opacity: 0.88;
+          }}
+          .wear-copy {{
+            margin-top: 0.8rem;
+            font-size: 0.9rem;
+            line-height: 1.62;
+            opacity: 0.84;
+          }}
+          .wear-refresh {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 2.9rem;
+            margin-top: 0.9rem;
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+            color: #eef8ff;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: none;
+          }}
+          .wear-refresh:hover,
+          .wear-refresh:focus {{
+            border-color: rgba(255,255,255,0.2);
+            color: #ffffff;
+            outline: none;
+          }}
+        </style>
+      </head>
+      <body>
+        <div class="wear-card">
+          <div class="wear-header">
+            <div>
+              <div class="wear-kicker" id="wear-kicker-{component_key}"></div>
+              <div class="wear-title" id="wear-title-{component_key}"></div>
+            </div>
+            <div class="wear-icon" id="wear-icon-{component_key}"></div>
+          </div>
+          <div class="wear-image-shell">
+            <img class="wear-image" id="wear-image-{component_key}" alt="">
+          </div>
+          <div class="wear-style-row">
+            <div class="wear-style-name" id="wear-style-name-{component_key}"></div>
+            <div class="wear-style-count" id="wear-style-count-{component_key}"></div>
+          </div>
+          <div class="wear-badges" id="wear-badges-{component_key}"></div>
+          <div class="wear-copy" id="wear-copy-{component_key}"></div>
+          <button class="wear-refresh" id="wear-refresh-{component_key}" type="button">Refresh Style</button>
+        </div>
+        <script>
+          const payload = {payload_json};
+          let index = payload.initial_index || 0;
+          const kickerNode = document.getElementById("wear-kicker-{component_key}");
+          const titleNode = document.getElementById("wear-title-{component_key}");
+          const iconNode = document.getElementById("wear-icon-{component_key}");
+          const imageNode = document.getElementById("wear-image-{component_key}");
+          const styleNameNode = document.getElementById("wear-style-name-{component_key}");
+          const styleCountNode = document.getElementById("wear-style-count-{component_key}");
+          const badgesNode = document.getElementById("wear-badges-{component_key}");
+          const copyNode = document.getElementById("wear-copy-{component_key}");
+          const refreshNode = document.getElementById("wear-refresh-{component_key}");
+
+          kickerNode.textContent = payload.eyebrow;
+          titleNode.textContent = payload.title;
+          iconNode.textContent = payload.icon;
+
+          function renderCard() {{
+            const variants = payload.variants || [];
+            if (!variants.length) return;
+            const safeIndex = ((index % variants.length) + variants.length) % variants.length;
+            const variant = variants[safeIndex];
+            imageNode.src = variant.image_url || "";
+            imageNode.alt = variant.style_name || payload.title || "Clothing recommendation";
+            styleNameNode.textContent = variant.style_name || "Style option";
+            styleCountNode.textContent = `Style ${{safeIndex + 1}} / ${{variants.length}}`;
+            copyNode.textContent = variant.note || "";
+            badgesNode.innerHTML = (variant.badges || [])
+              .map((badge) => `<span class="wear-badge">${{badge}}</span>`)
+              .join("");
+          }}
+
+          refreshNode.addEventListener("click", () => {{
+            const variants = payload.variants || [];
+            if (!variants.length) return;
+            index = (index + 1) % variants.length;
+            renderCard();
+          }});
+
+          renderCard();
+        </script>
+      </body>
+    </html>
+    """
+    components.html(html, height=420, scrolling=False)
+
+
+def render_visual_clothing_grid(items, state_prefix="wear"):
+    if not items:
+        return
+
+    used_image_urls = set()
+
+    for row_start in range(0, len(items), 3):
+        row_columns = st.columns(3)
+        for item, column in zip(items[row_start : row_start + 3], row_columns):
+            with column:
+                variants = item.get("variants") or []
+                if not variants:
+                    render_guidance_card_grid([item], grid_variant="wear")
+                    continue
+
+                state_key = _wear_variant_state_key(state_prefix, item)
+                current_index = int(st.session_state.get(state_key, 0)) % len(variants)
+                resolved_index, variant = _select_unique_wear_variant(
+                    variants,
+                    current_index,
+                    used_image_urls,
+                )
+                variant_url = str(variant.get("image_url") or "")
+                if variant_url:
+                    used_image_urls.add(variant_url)
+                _render_visual_clothing_card_component(
+                    item,
+                    variants,
+                    resolved_index,
+                    component_key=f"{state_key.replace('_', '-')}-card",
+                )
+
+
+def _render_visual_clothing_card_component(item, variants, initial_index, component_key):
+    payload = {
+        "eyebrow": str(item.get("eyebrow", "Recommendation")),
+        "title": str(item.get("title", "Suggested Piece")),
+        "icon": str(item.get("icon", "\u2022")),
+        "initial_index": int(initial_index),
+        "variants": [
+            {
+                "style_name": str(variant.get("style_name", "Style option")),
+                "image_url": str(variant.get("image_url", "")),
+                "note": str(variant.get("note", "") or item.get("body", "")),
+                "badges": [str(badge) for badge in variant.get("badges", [])],
+            }
+            for variant in variants
+        ],
+    }
+    payload_json = json.dumps(payload)
+    html = f"""
+    <html>
+      <head>
+        <style>
+          :root {{ color-scheme: dark; }}
+          html, body {{
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            font-family: "Segoe UI", Arial, sans-serif;
+            color: #eef8ff;
+          }}
+          .wear-visual-card {{
+            border-radius: 26px;
+            padding: 0.95rem;
+            background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.07));
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 16px 38px rgba(4, 15, 32, 0.15);
+            backdrop-filter: blur(14px);
+            box-sizing: border-box;
+          }}
+          .wear-visual-header {{
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.85rem;
+          }}
+          .wear-visual-kicker {{
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            opacity: 0.7;
+          }}
+          .wear-visual-title {{
+            margin-top: 0.28rem;
+            font-size: 1.08rem;
+            font-weight: 700;
+            line-height: 1.3;
+          }}
+          .wear-visual-icon {{
+            width: 2.9rem;
+            height: 2.9rem;
+            border-radius: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.1);
+            font-size: 1.2rem;
+            flex-shrink: 0;
+          }}
+          .wear-visual-image-shell {{
+            margin-top: 0.9rem;
+            border-radius: 22px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(242, 246, 251, 0.96));
+            min-height: 182px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.85rem;
+            box-sizing: border-box;
+          }}
+          .wear-visual-image {{
+            display: block;
+            width: 100%;
+            height: 150px;
+            object-fit: contain;
+            border-radius: 18px;
+          }}
+          .wear-visual-style {{
+            margin-top: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+          }}
+          .wear-visual-style-name {{
+            font-size: 0.96rem;
+            font-weight: 700;
+          }}
+          .wear-visual-count {{
+            font-size: 0.76rem;
+            opacity: 0.68;
+          }}
+          .wear-visual-badges {{
+            margin-top: 0.65rem;
+            display: flex;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+          }}
+          .wear-visual-badge {{
+            padding: 0.3rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.08);
+            font-size: 0.73rem;
+            opacity: 0.88;
+          }}
+          .wear-visual-body {{
+            margin-top: 0.8rem;
+            font-size: 0.9rem;
+            line-height: 1.62;
+            opacity: 0.84;
+          }}
+          .wear-visual-refresh {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 2.9rem;
+            margin-top: 0.95rem;
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+            color: #eef8ff;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-sizing: border-box;
+          }}
+          .wear-visual-refresh:hover,
+          .wear-visual-refresh:focus {{
+            border-color: rgba(255,255,255,0.2);
+            color: #ffffff;
+            outline: none;
+          }}
+        </style>
+      </head>
+      <body>
+        <div class="wear-visual-card">
+          <div class="wear-visual-header">
+            <div>
+              <div class="wear-visual-kicker" id="wear-kicker-{component_key}"></div>
+              <div class="wear-visual-title" id="wear-title-{component_key}"></div>
+            </div>
+            <div class="wear-visual-icon" id="wear-icon-{component_key}"></div>
+          </div>
+          <div class="wear-visual-image-shell">
+            <img class="wear-visual-image" id="wear-image-{component_key}" alt="">
+          </div>
+          <div class="wear-visual-style">
+            <div class="wear-visual-style-name" id="wear-style-name-{component_key}"></div>
+            <div class="wear-visual-count" id="wear-style-count-{component_key}"></div>
+          </div>
+          <div class="wear-visual-badges" id="wear-badges-{component_key}"></div>
+          <div class="wear-visual-body" id="wear-copy-{component_key}"></div>
+          <button class="wear-visual-refresh" id="wear-refresh-{component_key}" type="button">Refresh Style</button>
+        </div>
+        <script>
+          const payload = {payload_json};
+          let index = payload.initial_index || 0;
+          const kickerNode = document.getElementById("wear-kicker-{component_key}");
+          const titleNode = document.getElementById("wear-title-{component_key}");
+          const iconNode = document.getElementById("wear-icon-{component_key}");
+          const imageNode = document.getElementById("wear-image-{component_key}");
+          const styleNameNode = document.getElementById("wear-style-name-{component_key}");
+          const styleCountNode = document.getElementById("wear-style-count-{component_key}");
+          const badgesNode = document.getElementById("wear-badges-{component_key}");
+          const copyNode = document.getElementById("wear-copy-{component_key}");
+          const refreshNode = document.getElementById("wear-refresh-{component_key}");
+
+          kickerNode.textContent = payload.eyebrow;
+          titleNode.textContent = payload.title;
+          iconNode.textContent = payload.icon;
+
+          function renderCard() {{
+            const variants = payload.variants || [];
+            if (!variants.length) return;
+            const safeIndex = ((index % variants.length) + variants.length) % variants.length;
+            const variant = variants[safeIndex];
+            imageNode.src = variant.image_url || "";
+            imageNode.alt = variant.style_name || payload.title || "Clothing recommendation";
+            styleNameNode.textContent = variant.style_name || "Style option";
+            styleCountNode.textContent = `Style ${{safeIndex + 1}} / ${{variants.length}}`;
+            copyNode.textContent = variant.note || "";
+            badgesNode.innerHTML = (variant.badges || [])
+              .map((badge) => `<span class="wear-visual-badge">${{badge}}</span>`)
+              .join("");
+          }}
+
+          refreshNode.addEventListener("click", () => {{
+            const variants = payload.variants || [];
+            if (!variants.length) return;
+            index = (index + 1) % variants.length;
+            renderCard();
+          }});
+
+          renderCard();
+        </script>
+      </body>
+    </html>
+    """
+    components.html(html, height=420, scrolling=False)
+
+
+def render_visual_clothing_grid(items, state_prefix="wear"):
+    if not items:
+        return
+
+    used_image_urls = set()
+
+    for row_start in range(0, len(items), 3):
+        row_columns = st.columns(3)
+        for item, column in zip(items[row_start : row_start + 3], row_columns):
+            with column:
+                variants = item.get("variants") or []
+                if not variants:
+                    render_guidance_card_grid([item], grid_variant="wear")
+                    continue
+
+                state_key = _wear_variant_state_key(state_prefix, item)
+                current_index = int(st.session_state.get(state_key, 0)) % len(variants)
+                resolved_index, variant = _select_unique_wear_variant(
+                    variants,
+                    current_index,
+                    used_image_urls,
+                )
+                variant_url = str(variant.get("image_url") or "")
+                if variant_url:
+                    used_image_urls.add(variant_url)
+                _render_visual_clothing_card_component(
+                    item,
+                    variants,
+                    resolved_index,
+                    component_key=f"{state_key.replace('_', '-')}-original-card",
+                )
+
+
+def render_visual_clothing_grid(items, state_prefix="wear"):
+    if not items:
+        return
+
+    used_image_urls = set()
+
+    for row_start in range(0, len(items), 3):
+        row_columns = st.columns(3)
+        for item, column in zip(items[row_start : row_start + 3], row_columns):
+            with column:
+                variants = item.get("variants") or []
+                if not variants:
+                    render_guidance_card_grid([item], grid_variant="wear")
+                    continue
+
+                state_key = _wear_variant_state_key(state_prefix, item)
+                current_index = int(st.session_state.get(state_key, 0)) % len(variants)
+                resolved_index, variant = _select_unique_wear_variant(
+                    variants,
+                    current_index,
+                    used_image_urls,
+                )
+                variant_url = str(variant.get("image_url") or "")
+                if variant_url:
+                    used_image_urls.add(variant_url)
+
+                badges_html = "".join(
+                    f"<span class='wear-visual-badge'>{escape(str(badge))}</span>"
+                    for badge in variant.get("badges", [])
+                )
+                card_html = f"""
+                <div class="wear-visual-card">
+                    <div class="wear-visual-header">
+                        <div>
+                            <div class="wear-visual-kicker">{escape(str(item.get("eyebrow", "Recommendation")))}</div>
+                            <div class="wear-visual-title">{escape(str(item.get("title", "Suggested Piece")))}</div>
+                        </div>
+                        <div class="wear-visual-icon">{escape(str(item.get("icon", "\u2022")))}</div>
+                    </div>
+                    <div class="wear-visual-image-shell">
+                        <img class="wear-visual-image" src="{escape(str(variant.get("image_url") or ""), quote=True)}" alt="{escape(str(variant.get("style_name") or item.get("title") or "Clothing recommendation"), quote=True)}">
+                    </div>
+                    <div class="wear-visual-style">
+                        <div class="wear-visual-style-name">{escape(str(variant.get("style_name") or "Style option"))}</div>
+                        <div class="wear-visual-count">Style {resolved_index + 1} / {len(variants)}</div>
+                    </div>
+                    <div class="wear-visual-badges">{badges_html}</div>
+                    <div class="wear-visual-body">{escape(str(variant.get("note") or item.get("body") or ""))}</div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+                st.markdown("<div class='wear-refresh-anchor'></div>", unsafe_allow_html=True)
+                if len(variants) > 1 and st.button(
+                    "Refresh Style",
+                    key=f"{state_key}-refresh-active",
                     type="secondary",
                     use_container_width=True,
                 ):
