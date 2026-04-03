@@ -1,8 +1,10 @@
 import base64
 import json
+from datetime import datetime
 from html import escape
 from pathlib import Path
 from textwrap import dedent
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -79,6 +81,36 @@ def get_image_mime_type(image_path):
     if Path(image_path).suffix.lower() == ".png":
         return "image/png"
     return "image/jpeg"
+
+
+def get_weather_local_time_display(weather):
+    if not weather:
+        return {
+            "local_time": "--",
+            "local_date": "",
+            "timezone_abbr": "",
+        }
+
+    location = weather.get("location") or {}
+    time_info = weather.get("time") or {}
+    timezone_name = time_info.get("timezone") or location.get("timezone")
+
+    if timezone_name:
+        try:
+            local_now = datetime.now(ZoneInfo(timezone_name))
+            return {
+                "local_time": local_now.strftime("%I:%M %p").lstrip("0"),
+                "local_date": local_now.strftime("%a, %b %d"),
+                "timezone_abbr": local_now.strftime("%Z") or "",
+            }
+        except ZoneInfoNotFoundError:
+            pass
+
+    return {
+        "local_time": time_info.get("local_time") or "--",
+        "local_date": time_info.get("local_date") or "",
+        "timezone_abbr": time_info.get("timezone_abbr") or "",
+    }
 
 
 def apply_theme(background_path):
@@ -196,6 +228,71 @@ def apply_theme(background_path):
             color: #f4fbff;
             border: 0;
         }}
+        div[data-testid="stDateInput"] label p {{
+            color: rgba(238, 248, 255, 0.84);
+            font-weight: 600;
+        }}
+        div[data-testid="stDateInput"] [data-baseweb="input"] {{
+            min-height: 3.15rem;
+            border-radius: 22px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08));
+            border: 1px solid rgba(255,255,255,0.16);
+            box-shadow: 0 12px 30px rgba(4, 15, 32, 0.14);
+            backdrop-filter: blur(14px);
+        }}
+        div[data-testid="stDateInput"] input {{
+            color: #f4fbff !important;
+            background: transparent !important;
+        }}
+        div[data-testid="stDateInput"] button {{
+            color: #eef8ff !important;
+        }}
+        div[data-baseweb="popover"],
+        div[data-baseweb="calendar"] {{
+            background: transparent !important;
+        }}
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] {{
+            padding: 0.55rem;
+            border-radius: 24px !important;
+            background: linear-gradient(180deg, rgba(17, 39, 67, 0.96), rgba(8, 24, 42, 0.94)) !important;
+            border: 1px solid rgba(255,255,255,0.14) !important;
+            box-shadow: 0 18px 42px rgba(4, 15, 32, 0.24) !important;
+            backdrop-filter: blur(18px);
+        }}
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] *,
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] span,
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] svg {{
+            color: #eef8ff !important;
+            fill: #eef8ff !important;
+        }}
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] button {{
+            border-radius: 14px !important;
+            color: #eef8ff !important;
+            background: transparent !important;
+        }}
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] button:hover {{
+            background: rgba(255,255,255,0.08) !important;
+        }}
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] button[aria-selected="true"],
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] [data-selected="true"] {{
+            background: linear-gradient(135deg, rgba(214, 239, 250, 0.3), rgba(169, 215, 235, 0.22)) !important;
+            border-color: rgba(255,255,255,0.18) !important;
+            box-shadow: 0 10px 24px rgba(4, 15, 32, 0.16) !important;
+            color: #ffffff !important;
+        }}
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] div[data-baseweb="select"] > div {{
+            min-height: 2.45rem;
+            border-radius: 14px;
+            background: rgba(255,255,255,0.08) !important;
+            border: 1px solid rgba(255,255,255,0.12) !important;
+            box-shadow: none !important;
+        }}
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] div[data-baseweb="select"] span,
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] div[data-baseweb="select"] input,
+        div[data-baseweb="popover"] div[data-baseweb="calendar"] div[data-baseweb="select"] svg {{
+            color: #eef8ff !important;
+            fill: #eef8ff !important;
+        }}
         .stButton button {{
             border-radius: 22px;
             font-weight: 600;
@@ -258,6 +355,12 @@ def apply_theme(background_path):
         .summary-city {{
             font-size: clamp(1.5rem, 2.5vw, 2.15rem);
             font-weight: 700;
+        }}
+        .summary-time {{
+            margin-top: 0.42rem;
+            font-size: 0.9rem;
+            letter-spacing: 0.04em;
+            opacity: 0.8;
         }}
         .summary-temp {{
             margin-top: 0.3rem;
@@ -337,6 +440,12 @@ def apply_theme(background_path):
             font-size: 1.16rem;
             font-weight: 700;
             margin: 0.35rem 0 0.95rem 0;
+        }}
+        .section-divider {{
+            height: 1px;
+            margin: 1.45rem 0 1.2rem;
+            background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.22), rgba(255,255,255,0));
+            opacity: 0.88;
         }}
         .section-subtitle {{
             margin-top: -0.45rem;
@@ -1050,6 +1159,9 @@ def apply_theme(background_path):
         .intel-focus-grid--wear {{
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }}
+        .intel-focus-grid--trip-days {{
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }}
         .intel-focus-card {{
             padding: 1rem 1.05rem;
             border-radius: 24px;
@@ -1228,7 +1340,8 @@ def apply_theme(background_path):
             .intel-alert-banner-grid,
             .intel-support-grid,
             .intel-focus-grid,
-            .intel-focus-grid--wear {{
+            .intel-focus-grid--wear,
+            .intel-focus-grid--trip-days {{
                 grid-template-columns: 1fr;
             }}
             .wear-visual-image-shell {{
@@ -1259,6 +1372,9 @@ def render_topbar(weather, city_name, temp_symbol, use_fahrenheit=False):
         current_temp = round(weather["current"]["temperature"], 1)
         high_temp = today["max"] if today else "--"
         low_temp = today["min"] if today else "--"
+        time_info = get_weather_local_time_display(weather)
+        time_parts = [time_info.get("local_date"), time_info.get("local_time"), time_info.get("timezone_abbr")]
+        time_text = " | ".join(part for part in time_parts if part)
 
         if use_fahrenheit:
             current_temp = round((current_temp * 9 / 5) + 32, 1)
@@ -1270,6 +1386,7 @@ def render_topbar(weather, city_name, temp_symbol, use_fahrenheit=False):
             f"""
             <div class="topbar glass">
                 <div class="summary-city">{city_name}</div>
+                <div class="summary-time">Local time {time_text}</div>
                 <div class="summary-temp">{get_condition_icon(weather['current']['condition'])} {current_temp}{temp_symbol}</div>
                 <div class="summary-condition">{weather['current']['condition']}</div>
                 <div class="summary-range">H: {high_temp}{temp_symbol} | L: {low_temp}{temp_symbol}</div>
@@ -1282,6 +1399,7 @@ def render_topbar(weather, city_name, temp_symbol, use_fahrenheit=False):
             """
             <div class="topbar glass">
                 <div class="summary-city">Weather Loading</div>
+                <div class="summary-time">Local time unavailable</div>
                 <div class="summary-temp">--</div>
                 <div class="summary-condition">Waiting for weather data</div>
                 <div class="summary-range">H: -- | L: --</div>

@@ -244,6 +244,239 @@ def build_pdf_export(bundle):
     return _build_pdf_bytes("\n".join(commands).encode("latin-1", errors="replace"), page_width, page_height)
 
 
+def build_trip_plan_pdf(bundle):
+    page_width = 612
+    page_height = 792
+    pages = []
+
+    def new_page():
+        commands = []
+        pages.append(commands)
+        return commands
+
+    def page_y(top_offset):
+        return page_height - top_offset
+
+    def draw_rect(page, x, top, width, height, fill_rgb, stroke_rgb=None, line_width=1):
+        y = page_height - top - height
+        fill = f"{fill_rgb[0]:.3f} {fill_rgb[1]:.3f} {fill_rgb[2]:.3f} rg"
+        if stroke_rgb is None:
+            page.append(f"{fill}\n{x:.2f} {y:.2f} {width:.2f} {height:.2f} re f")
+            return
+        stroke = f"{stroke_rgb[0]:.3f} {stroke_rgb[1]:.3f} {stroke_rgb[2]:.3f} RG"
+        page.append(
+            f"{line_width:.2f} w\n{fill}\n{stroke}\n{x:.2f} {y:.2f} {width:.2f} {height:.2f} re B"
+        )
+
+    def draw_text(page, x, top, text, font_name="F1", size=11, rgb=(0.12, 0.2, 0.3)):
+        safe_text = _pdf_escape(text)
+        page.append(
+            "BT\n"
+            f"/{font_name} {size} Tf\n"
+            f"{rgb[0]:.3f} {rgb[1]:.3f} {rgb[2]:.3f} rg\n"
+            f"1 0 0 1 {x:.2f} {page_y(top):.2f} Tm\n"
+            f"({safe_text}) Tj\n"
+            "ET"
+        )
+
+    def draw_wrapped_text(page, x, top, text, max_chars, font_name="F1", size=10, rgb=(0.2, 0.27, 0.36), line_gap=13):
+        lines = wrap(_pdf_plain(text), width=max_chars) or [""]
+        for index, line in enumerate(lines):
+            draw_text(page, x, top + (index * line_gap), line, font_name=font_name, size=size, rgb=rgb)
+        return top + (len(lines) * line_gap)
+
+    def draw_info_card(page, x, top, width, height, label, value, body):
+        draw_rect(page, x, top, width, height, (0.95, 0.97, 1.0), (0.82, 0.88, 0.94), 0.7)
+        draw_text(page, x + 14, top + 18, label, font_name="F2", size=8, rgb=(0.36, 0.46, 0.58))
+        next_top = draw_wrapped_text(
+            page,
+            x + 14,
+            top + 38,
+            value,
+            max_chars=max(18, int(width / 7.0)),
+            font_name="F2",
+            size=12,
+            rgb=(0.11, 0.2, 0.31),
+            line_gap=13,
+        )
+        draw_wrapped_text(
+            page,
+            x + 14,
+            next_top + 2,
+            body,
+            max_chars=max(24, int(width / 6.0)),
+            font_name="F1",
+            size=8,
+            rgb=(0.23, 0.31, 0.41),
+            line_gap=10,
+        )
+
+    page_one = new_page()
+    draw_rect(page_one, 36, 34, 540, 92, (0.13, 0.25, 0.42))
+    draw_text(page_one, 54, 62, "Skyline Forecast Trip Plan", font_name="F2", size=22, rgb=(1, 1, 1))
+    route_top = draw_wrapped_text(
+        page_one,
+        54,
+        88,
+        bundle["route_label"],
+        max_chars=68,
+        font_name="F2",
+        size=14,
+        rgb=(0.95, 0.98, 1.0),
+        line_gap=15,
+    )
+    draw_text(
+        page_one,
+        54,
+        route_top + 4,
+        f'{bundle["date_range_label"]} | Generated {bundle["generated_at"]}',
+        font_name="F1",
+        size=9,
+        rgb=(0.86, 0.92, 0.98),
+    )
+
+    draw_rect(page_one, 36, 146, 540, 96, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(page_one, 54, 168, "Trip Summary", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    draw_wrapped_text(
+        page_one,
+        54,
+        194,
+        bundle["overview_body"],
+        max_chars=92,
+        font_name="F1",
+        size=9,
+        rgb=(0.2, 0.27, 0.36),
+        line_gap=12,
+    )
+
+    snapshot_cards = bundle["snapshot_cards"][:4]
+    card_width = 264
+    card_height = 78
+    card_gap = 12
+    snapshot_top = 262
+    for index, card in enumerate(snapshot_cards):
+        row_index = index // 2
+        column_index = index % 2
+        x_position = 36 + (column_index * (card_width + card_gap))
+        top_position = snapshot_top + (row_index * (card_height + 12))
+        draw_info_card(
+            page_one,
+            x_position,
+            top_position,
+            card_width,
+            card_height,
+            card["label"],
+            card["value"],
+            card["body"],
+        )
+
+    packing_title_top = 448
+    draw_text(page_one, 36, packing_title_top, "Packing Recommendations", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    packing_cards = bundle["packing_items"][:6]
+    packing_top = 472
+    packing_width = 264
+    packing_height = 82
+    for index, item in enumerate(packing_cards):
+        row_index = index // 2
+        column_index = index % 2
+        x_position = 36 + (column_index * (packing_width + 12))
+        top_position = packing_top + (row_index * (packing_height + 12))
+        draw_rect(page_one, x_position, top_position, packing_width, packing_height, (0.95, 0.97, 1.0), (0.84, 0.89, 0.95), 0.6)
+        draw_text(page_one, x_position + 14, top_position + 16, item.get("eyebrow", "Recommendation"), font_name="F2", size=8, rgb=(0.36, 0.46, 0.58))
+        next_top = draw_wrapped_text(
+            page_one,
+            x_position + 14,
+            top_position + 34,
+            item.get("title", ""),
+            max_chars=34,
+            font_name="F2",
+            size=10,
+            rgb=(0.11, 0.2, 0.31),
+            line_gap=11,
+        )
+        draw_wrapped_text(
+            page_one,
+            x_position + 14,
+            next_top + 2,
+            item.get("body", ""),
+            max_chars=40,
+            font_name="F1",
+            size=8,
+            rgb=(0.23, 0.31, 0.41),
+            line_gap=9,
+        )
+
+    page_two = new_page()
+    draw_rect(page_two, 36, 34, 540, 74, (0.16, 0.29, 0.46))
+    draw_text(page_two, 54, 61, "Destination Daily Forecast", font_name="F2", size=20, rgb=(1, 1, 1))
+    draw_text(page_two, 54, 86, bundle["route_label"], font_name="F1", size=9, rgb=(0.88, 0.94, 0.99))
+
+    table_top = 124
+    draw_rect(page_two, 36, table_top, 540, 28, (0.36, 0.49, 0.65))
+    draw_text(page_two, 52, table_top + 18, "Daily Destination Outlook", font_name="F2", size=12, rgb=(1, 1, 1))
+
+    headers = [
+        ("Date", 36, 86),
+        ("Day", 122, 46),
+        ("Condition", 168, 96),
+        ("Low", 264, 56),
+        ("High", 320, 56),
+        ("Rain", 376, 56),
+        ("Wind", 432, 82),
+        ("UV", 514, 62),
+    ]
+    header_top = table_top + 38
+    draw_rect(page_two, 36, header_top, 540, 26, (0.88, 0.92, 0.97), (0.82, 0.88, 0.94), 0.6)
+    for title, x_position, _ in headers:
+        draw_text(page_two, x_position + 6, header_top + 17, title, font_name="F2", size=8, rgb=(0.18, 0.27, 0.38))
+
+    row_top = header_top + 26
+    available_table_height = 566
+    row_count = max(1, len(bundle["daily_rows"]))
+    row_height = 28 if row_count <= 16 else max(22, int(available_table_height / row_count))
+    row_text_offset = 17 if row_height >= 24 else max(12, row_height - 6)
+    row_font_size = 8 if row_height >= 22 else 7
+    for index, row in enumerate(bundle["daily_rows"]):
+        fill_color = (0.97, 0.98, 1.0) if index % 2 == 0 else (0.94, 0.97, 0.995)
+        current_row_top = row_top + (index * row_height)
+        draw_rect(page_two, 36, current_row_top, 540, row_height, fill_color, (0.86, 0.9, 0.95), 0.4)
+        values = [
+            row["Date"],
+            row["Day"],
+            row["Condition"],
+            row["Low"],
+            row["High"],
+            row["Rain"],
+            row["Wind"],
+            row["UV"],
+        ]
+        for (title, x_position, width), value in zip(headers, values):
+            wrapped = wrap(_pdf_plain(value), width=max(6, int(width / 5.6))) or [""]
+            draw_text(
+                page_two,
+                x_position + 6,
+                current_row_top + row_text_offset,
+                wrapped[0],
+                font_name="F1",
+                size=row_font_size,
+                rgb=(0.2, 0.27, 0.36),
+            )
+
+    footer_top = min(760, row_top + (row_count * row_height) + 20)
+    draw_text(
+        page_two,
+        36,
+        footer_top,
+        "Trip planning recommendations are based on the destination forecast range and the current snapshots included on page one.",
+        font_name="F1",
+        size=8,
+        rgb=(0.42, 0.5, 0.6),
+    )
+
+    content_streams = ["\n".join(page).encode("latin-1", errors="replace") for page in pages]
+    return _build_multi_page_pdf_bytes(content_streams, page_width, page_height)
+
+
 def _build_overview_sheet_xml(bundle):
     row_cells = {}
     merged_ranges = []
@@ -585,6 +818,61 @@ def _build_pdf_bytes(content_stream, page_width, page_height):
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
         b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content_stream), content_stream),
     ]
+
+    pdf = io.BytesIO()
+    pdf.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for object_id, object_body in enumerate(objects, start=1):
+        offsets.append(pdf.tell())
+        pdf.write(f"{object_id} 0 obj\n".encode("ascii"))
+        pdf.write(object_body)
+        pdf.write(b"\nendobj\n")
+
+    xref_position = pdf.tell()
+    pdf.write(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    pdf.write(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.write(f"{offset:010d} 00000 n \n".encode("ascii"))
+
+    pdf.write(
+        (
+            "trailer\n"
+            f"<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+            "startxref\n"
+            f"{xref_position}\n"
+            "%%EOF"
+        ).encode("ascii")
+    )
+    return pdf.getvalue()
+
+
+def _build_multi_page_pdf_bytes(content_streams, page_width, page_height):
+    page_count = len(content_streams)
+    page_object_ids = [3 + index for index in range(page_count)]
+    font_one_id = 3 + page_count
+    font_two_id = font_one_id + 1
+    content_ids = [font_two_id + 1 + index for index in range(page_count)]
+
+    kids_refs = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids_refs}] /Count {page_count} >>".encode("ascii"),
+    ]
+
+    for page_id, content_id in zip(page_object_ids, content_ids):
+        objects.append(
+            (
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width} {page_height}] "
+                f"/Resources << /Font << /F1 {font_one_id} 0 R /F2 {font_two_id} 0 R >> >> "
+                f"/Contents {content_id} 0 R >>"
+            ).encode("ascii")
+        )
+
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>")
+
+    for content_stream in content_streams:
+        objects.append(b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content_stream), content_stream))
 
     pdf = io.BytesIO()
     pdf.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")

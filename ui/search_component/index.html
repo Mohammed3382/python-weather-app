@@ -219,6 +219,8 @@
       let portal = null;
       let scrollArea = null;
       let selectAllOnMouseUp = false;
+      let activeFetchController = null;
+      const queryCache = new Map();
 
       const postMessage = (type, payload = {}) => {
         hostWindow.postMessage({ isStreamlitMessage: true, type, ...payload }, "*");
@@ -415,6 +417,10 @@
       };
 
       const hideResults = () => {
+        if (activeFetchController) {
+          activeFetchController.abort();
+          activeFetchController = null;
+        }
         currentResults = [];
         activeIndex = -1;
         scrollArea.innerHTML = "";
@@ -581,9 +587,10 @@
       };
 
       const searchCities = async (query) => {
-        activeQuery = query;
-        const recentMatches = getRecentMatches(query);
-        if (query.trim().length < 2) {
+        const normalizedQuery = query.trim();
+        activeQuery = normalizedQuery;
+        const recentMatches = getRecentMatches(normalizedQuery);
+        if (normalizedQuery.length < 2) {
           if (recentMatches.length) {
             renderResults(recentMatches);
           } else {
@@ -592,15 +599,31 @@
           return;
         }
 
+        const cacheKey = normalizedQuery.toLowerCase();
+        if (queryCache.has(cacheKey)) {
+          renderResults(mergeResults(recentMatches, queryCache.get(cacheKey)));
+          return;
+        }
+
+        if (activeFetchController) {
+          activeFetchController.abort();
+        }
+        activeFetchController = new AbortController();
+
         try {
-          const url = `${geocodingUrl}?name=${encodeURIComponent(query)}&count=12&language=en&format=json`;
-          const response = await fetch(url);
+          const url = `${geocodingUrl}?name=${encodeURIComponent(normalizedQuery)}&count=12&language=en&format=json`;
+          const response = await fetch(url, { signal: activeFetchController.signal });
           const data = await response.json();
-          if (activeQuery !== query) {
+          if (activeQuery !== normalizedQuery) {
             return;
           }
-          renderResults(mergeResults(recentMatches, normalizeResults(data.results || [], query)));
+          const normalizedResults = normalizeResults(data.results || [], normalizedQuery);
+          queryCache.set(cacheKey, normalizedResults);
+          renderResults(mergeResults(recentMatches, normalizedResults));
         } catch (error) {
+          if (error && error.name === "AbortError") {
+            return;
+          }
           if (recentMatches.length) {
             renderResults(recentMatches);
           } else {
@@ -679,7 +702,7 @@
             });
           }
           searchCities(nextValue);
-        }, 180);
+        }, 90);
       });
 
       input.addEventListener("focus", () => {
@@ -693,9 +716,7 @@
             }
           });
         }
-        if (input.value.trim().length >= 2) {
-          searchCities(input.value);
-        }
+        searchCities(input.value);
         updatePortalPosition();
         setFrameHeight(104);
       });
@@ -751,11 +772,12 @@
         }
       });
 
-      const handleScrollAreaClick = (event) => {
+      const handleScrollAreaPointerDown = (event) => {
         const option = event.target.closest(".skyline-search-option");
         if (!option) {
           return;
         }
+        event.preventDefault();
         selectItem(Number(option.dataset.index));
       };
 
@@ -780,7 +802,7 @@
       };
 
       ensurePortal();
-      scrollArea.addEventListener("click", handleScrollAreaClick);
+      scrollArea.addEventListener("pointerdown", handleScrollAreaPointerDown);
       scrollArea.addEventListener("mousemove", handleScrollAreaMove);
       hostDoc.addEventListener("pointerdown", handleHostPointerDown, true);
       hostWindow.addEventListener("resize", handleWindowChange);

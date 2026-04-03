@@ -1,6 +1,7 @@
 import json
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 import streamlit as st
@@ -18,6 +19,8 @@ DAILY_EXPORT_FIELDS = [
     "sunrise",
     "sunset",
     "uv_index_max",
+    "wind_speed_10m_max",
+    "wind_gusts_10m_max",
 ]
 
 CONDITION_MAP = {
@@ -76,6 +79,34 @@ def format_time(date_str):
     return datetime.fromisoformat(date_str).strftime("%I:%M %p").lstrip("0")
 
 
+def build_local_time_payload(timezone_name, observed_at=None):
+    local_now = None
+
+    if timezone_name:
+        try:
+            local_now = datetime.now(ZoneInfo(timezone_name))
+        except ZoneInfoNotFoundError:
+            local_now = None
+
+    if local_now is None and observed_at:
+        try:
+            local_now = datetime.fromisoformat(observed_at)
+        except ValueError:
+            local_now = None
+
+    if local_now is None:
+        local_now = datetime.now()
+
+    return {
+        "timezone": timezone_name or "",
+        "timezone_abbr": local_now.strftime("%Z") or "",
+        "local_time": local_now.strftime("%I:%M %p").lstrip("0"),
+        "local_date": local_now.strftime("%a, %b %d"),
+        "local_datetime_iso": local_now.isoformat(timespec="seconds"),
+        "observed_at": observed_at or "",
+    }
+
+
 def _safe_daily_value(values, index, default):
     if index < len(values):
         value = values[index]
@@ -92,6 +123,8 @@ def _build_daily_forecast_rows(daily):
     rain_chances = daily.get("precipitation_probability_max") or []
     rain_totals = daily.get("precipitation_sum") or []
     uv_indexes = daily.get("uv_index_max") or []
+    wind_speeds = daily.get("wind_speed_10m_max") or []
+    wind_gusts = daily.get("wind_gusts_10m_max") or []
     sunrise_times = daily.get("sunrise") or []
     sunset_times = daily.get("sunset") or []
 
@@ -107,6 +140,8 @@ def _build_daily_forecast_rows(daily):
                 "rain_chance": int(round(_safe_daily_value(rain_chances, index, 0))),
                 "rain_total": round(_safe_daily_value(rain_totals, index, 0), 1),
                 "uv_index": round(_safe_daily_value(uv_indexes, index, 0), 1),
+                "wind_speed": round(_safe_daily_value(wind_speeds, index, 0), 1),
+                "wind_gust": round(_safe_daily_value(wind_gusts, index, 0), 1),
                 "sunrise": format_time(_safe_daily_value(sunrise_times, index, "1970-01-01T06:00")) if sunrise_times else "--",
                 "sunset": format_time(_safe_daily_value(sunset_times, index, "1970-01-01T18:00")) if sunset_times else "--",
                 "hourly": [],
@@ -355,6 +390,10 @@ def get_weather(city_name):
             "country": location.get("country"),
             "admin1": location.get("admin1"),
         },
+        "time": build_local_time_payload(
+            forecast_data.get("timezone") or location.get("timezone"),
+            current.get("time"),
+        ),
         "current": {
             "temperature": round(current["temperature_2m"], 1),
             "humidity": int(round(current["relative_humidity_2m"])),
@@ -392,10 +431,10 @@ def get_daily_weather_range(latitude, longitude, start_date, end_date, timezone_
         )
         response.raise_for_status()
     except requests.RequestException as exc:
-        raise WeatherError("Unable to load the selected export date range right now.") from exc
+        raise WeatherError("Unable to load the selected date range right now.") from exc
 
     daily = (response.json() or {}).get("daily") or {}
     forecast_rows = _build_daily_forecast_rows(daily)
     if not forecast_rows:
-        raise ForecastDataError("No export data is available for the selected date range.")
+        raise ForecastDataError("No weather data is available for the selected date range.")
     return forecast_rows

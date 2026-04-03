@@ -1,5 +1,6 @@
 import base64
 import json
+import unicodedata
 from datetime import date, datetime, timedelta
 from html import escape
 from pathlib import Path
@@ -21,6 +22,7 @@ from services.exporters import (
     build_csv_export,
     build_excel_export,
     build_pdf_export,
+    build_trip_plan_pdf,
 )
 from services.clothing_catalog import get_clothing_visual_bundle
 from services.user_preferences import (
@@ -707,7 +709,8 @@ def sync_settings_draft_state():
 
 
 def sanitize_export_filename(value):
-    cleaned = "".join(char if char.isalnum() else "_" for char in str(value))
+    normalized = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
+    cleaned = "".join(char if char.isalnum() else "_" for char in normalized)
     cleaned = "_".join(part for part in cleaned.split("_") if part)
     return cleaned.lower() or "location"
 
@@ -1021,6 +1024,423 @@ def build_export_download_artifact(
         "description": f'Presentation-ready export for {window_config["label"].lower()}.',
         "bytes": build_pdf_export(bundle),
         "bundle": bundle,
+    }
+
+
+def get_trip_planner_picker_bounds():
+    today = date.today()
+    return today, today + timedelta(days=EXPORT_FUTURE_LOOKAHEAD_LIMIT_DAYS)
+
+
+def get_default_trip_planner_dates():
+    min_date, max_date = get_trip_planner_picker_bounds()
+    default_start = min(min_date + timedelta(days=1), max_date)
+    default_end = min(default_start + timedelta(days=2), max_date)
+    return default_start, default_end
+
+
+def describe_trip_temperature_band(avg_temp):
+    if avg_temp >= 30:
+        return "hot"
+    if avg_temp >= 23:
+        return "warm"
+    if avg_temp >= 15:
+        return "mild"
+    if avg_temp >= 8:
+        return "cool"
+    return "cold"
+
+
+def describe_trip_rain_profile(avg_rain_chance, wet_days, days_count):
+    if avg_rain_chance >= 60 or wet_days * 2 >= days_count:
+        return "consistently wet"
+    if avg_rain_chance >= 35 or wet_days >= 1:
+        return "mixed with some rain risk"
+    return "mostly dry"
+
+
+def describe_trip_wind_profile(avg_wind_speed, peak_gust):
+    if avg_wind_speed >= 28 or peak_gust >= 42:
+        return "quite windy"
+    if avg_wind_speed >= 18 or peak_gust >= 30:
+        return "noticeably breezy"
+    return "fairly calm"
+
+
+def build_trip_uv_sentence(has_uv_data, avg_uv, peak_uv):
+    if not has_uv_data:
+        return "UV data is limited for this range."
+    if peak_uv >= 8:
+        return f"UV peaks around {peak_uv}, so midday sun protection matters."
+    if peak_uv >= 6:
+        return f"UV stays moderate to high, averaging about {avg_uv} across the trip."
+    return f"UV remains on the lighter side with a peak near {peak_uv}."
+
+
+def compute_trip_planner_day_score(day):
+    midpoint = (day.get("min", 0) + day.get("max", 0)) / 2
+    rain_chance = day.get("rain_chance", 0)
+    wind_speed = day.get("wind_speed", 0) or 0
+    condition = day.get("condition") or "Cloudy"
+
+    score = 10.0
+    score -= max(0, midpoint - 30) * 0.22
+    score -= max(0, 12 - midpoint) * 0.34
+    score -= min(rain_chance, 100) * 0.03
+    score -= max(0, wind_speed - 18) * 0.08
+
+    if condition == "Thunderstorm":
+        score -= 3.2
+    elif condition in {"Snowy", "Rainy"}:
+        score -= 1.4
+
+    return clamp_score(score)
+
+
+def build_trip_planner_analysis(city_name, forecast_rows, temp_symbol, speed_symbol, use_fahrenheit):
+    days_count = len(forecast_rows)
+    start_date = datetime.strptime(forecast_rows[0]["date"], "%Y-%m-%d").date()
+    end_date = datetime.strptime(forecast_rows[-1]["date"], "%Y-%m-%d").date()
+
+    daily_midpoints = [(day["min"] + day["max"]) / 2 for day in forecast_rows]
+    avg_temp = round(sum(daily_midpoints) / days_count, 1)
+    trip_low = min(day["min"] for day in forecast_rows)
+    trip_high = max(day["max"] for day in forecast_rows)
+
+    rain_chances = [day.get("rain_chance", 0) for day in forecast_rows]
+    avg_rain_chance = round(sum(rain_chances) / days_count, 1)
+    wet_days = sum(1 for chance in rain_chances if chance >= 40)
+    peak_rain_chance = max(rain_chances)
+
+    wind_speeds = [float(day.get("wind_speed", 0) or 0) for day in forecast_rows]
+    gust_values = [max(float(day.get("wind_gust", 0) or 0), wind) for day, wind in zip(forecast_rows, wind_speeds)]
+    avg_wind_speed = round(sum(wind_speeds) / days_count, 1)
+    peak_gust = round(max(gust_values), 1)
+
+    uv_candidates = [float(day.get("uv_index", 0) or 0) for day in forecast_rows]
+    has_uv_data = any(value > 0 for value in uv_candidates)
+    avg_uv = round(sum(uv_candidates) / len(uv_candidates), 1) if has_uv_data else None
+    peak_uv = round(max(uv_candidates), 1) if has_uv_data else None
+
+    condition_counts = {}
+    for day in forecast_rows:
+        condition = day.get("condition") or "Cloudy"
+        condition_counts[condition] = condition_counts.get(condition, 0) + 1
+    dominant_condition, dominant_condition_count = max(condition_counts.items(), key=lambda item: item[1])
+    if dominant_condition_count * 2 >= days_count:
+        condition_summary = f"mostly {dominant_condition.lower()} conditions"
+    else:
+        condition_summary = "a mixed set of conditions"
+
+    day_scores = [{"day": day, "score": compute_trip_planner_day_score(day)} for day in forecast_rows]
+    best_day_entry = max(day_scores, key=lambda item: item["score"])
+    caution_day_entry = min(day_scores, key=lambda item: item["score"])
+    best_day = best_day_entry["day"]
+    caution_day = caution_day_entry["day"]
+
+    range_delta = format_temperature_delta(trip_high - trip_low, use_fahrenheit)
+    temp_descriptor = describe_trip_temperature_band(avg_temp)
+    rain_descriptor = describe_trip_rain_profile(avg_rain_chance, wet_days, days_count)
+    wind_descriptor = describe_trip_wind_profile(avg_wind_speed, peak_gust)
+    uv_sentence = build_trip_uv_sentence(has_uv_data, avg_uv, peak_uv)
+
+    avg_temp_text = format_temperature_text(avg_temp, temp_symbol, use_fahrenheit)
+    trip_low_text = format_temperature_text(trip_low, temp_symbol, use_fahrenheit)
+    trip_high_text = format_temperature_text(trip_high, temp_symbol, use_fahrenheit)
+
+    overview_notes = [
+        {
+            "label": "Trip Window",
+            "title": f"{days_count} day{'s' if days_count != 1 else ''}",
+            "body": f"{start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')}",
+        },
+        {
+            "label": "Average Temp",
+            "title": avg_temp_text,
+            "body": "Calculated from each day's midpoint across the full trip.",
+        },
+        {
+            "label": "Min / Max",
+            "title": f"{trip_low_text} to {trip_high_text}",
+            "body": f"Overall temperature span is {range_delta}{temp_symbol}.",
+        },
+        {
+            "label": "Rain Probability",
+            "title": f"Avg {avg_rain_chance}%",
+            "body": f"{wet_days} of {days_count} day{'s' if days_count != 1 else ''} reach at least 40% rain risk. Peak {peak_rain_chance}%.",
+        },
+        {
+            "label": "Wind Conditions",
+            "title": format_wind_text(avg_wind_speed, speed_symbol),
+            "body": f"Peak gust reaches {format_wind_text(peak_gust, speed_symbol)}.",
+        },
+        {
+            "label": "UV Index",
+            "title": f"Peak {peak_uv}" if has_uv_data else "Unavailable",
+            "body": f"Average daily UV max is {avg_uv}." if has_uv_data else "The selected range did not return usable UV values.",
+        },
+    ]
+
+    packing_items = []
+    if avg_temp >= 28:
+        base_title = "Pack light and breathable layers"
+        base_body = "Short-sleeve tops, lighter trousers, and airy fabrics will handle the warmer range more comfortably."
+    elif avg_temp >= 18:
+        base_title = "Pack flexible everyday layers"
+        base_body = "T-shirts, light long sleeves, and easy layering pieces should cover most of the trip without overpacking."
+    elif avg_temp >= 10:
+        base_title = "Plan for cooler layers"
+        base_body = "A mix of tees, knitwear, and a light mid-layer will handle the cooler portions of the range better."
+    else:
+        base_title = "Pack warmer layers"
+        base_body = "Thermals, heavier tops, and insulating basics will matter more than lightweight pieces on this trip."
+    packing_items.append({"eyebrow": "Core Layers", "title": base_title, "body": base_body, "icon": "\U0001f455"})
+
+    if trip_low < 14 or (trip_high - trip_low) >= 10 or avg_wind_speed >= 18:
+        outer_title = "Keep a light outer layer ready"
+        outer_body = "A jacket, overshirt, or wind-resistant shell will help with cooler starts, late hours, or breezier stretches."
+    else:
+        outer_title = "Heavy outerwear is unlikely"
+        outer_body = "A very light extra layer should be enough unless you usually run cold."
+    packing_items.append({"eyebrow": "Outer Layer", "title": outer_title, "body": outer_body, "icon": "\U0001f9e5"})
+
+    if wet_days >= 2 or peak_rain_chance >= 55:
+        rain_title = "Rain gear is worth packing"
+        rain_body = "A compact umbrella or water-resistant layer makes sense because multiple days carry meaningful rain risk."
+    elif wet_days == 1 or avg_rain_chance >= 25:
+        rain_title = "Pack a compact rain backup"
+        rain_body = "Rain does not dominate the trip, but one wetter day is enough to justify a small umbrella or shell."
+    else:
+        rain_title = "Rain extras can stay minimal"
+        rain_body = "The trip trends mostly dry, so rain protection can stay light unless your plans depend on being outdoors for long periods."
+    packing_items.append({"eyebrow": "Rain Plan", "title": rain_title, "body": rain_body, "icon": "\u2602\ufe0f"})
+
+    if has_uv_data and peak_uv >= 8:
+        sun_title = "Sun protection is essential"
+        sun_body = "Pack sunscreen, sunglasses, and a cap because the strongest UV periods will hit hard during clearer midday hours."
+    elif has_uv_data and peak_uv >= 6:
+        sun_title = "Keep sun coverage handy"
+        sun_body = "Basic sun protection will be useful on the brighter days, especially if you expect longer outdoor time."
+    else:
+        sun_title = "Sun exposure stays manageable"
+        sun_body = "Standard daily coverage should be enough unless your plans keep you outside for extended periods."
+    packing_items.append({"eyebrow": "Sun Protection", "title": sun_title, "body": sun_body, "icon": "\U0001f9f4"})
+
+    if wet_days >= 1 or peak_rain_chance >= 45:
+        shoes_title = "Choose shoes that handle mixed ground"
+        shoes_body = "Closed shoes with reasonable grip will be easier to live with if pavements or paths turn slick."
+    else:
+        shoes_title = "Comfortable walking shoes should be enough"
+        shoes_body = "You can prioritize comfort and lighter footwear because the trip does not lean heavily toward wet conditions."
+    packing_items.append({"eyebrow": "Footwear", "title": shoes_title, "body": shoes_body, "icon": "\U0001f45f"})
+
+    best_day_label = datetime.strptime(best_day["date"], "%Y-%m-%d").strftime("%a, %b %d")
+    caution_day_label = datetime.strptime(caution_day["date"], "%Y-%m-%d").strftime("%a, %b %d")
+    activity_body = (
+        f"{best_day_label} looks strongest for longer outdoor plans with {best_day['rain_chance']}% rain risk and "
+        f"{format_wind_text(best_day.get('wind_speed', 0), speed_symbol)} wind."
+    )
+    if days_count > 1 and caution_day["date"] != best_day["date"] and caution_day_entry["score"] <= 6:
+        activity_body += f" {caution_day_label} is the rougher day, so keep indoor backups or lighter plans there."
+    packing_items.append({"eyebrow": "Trip Rhythm", "title": "Use the smoother days for outdoor plans", "body": activity_body, "icon": "\U0001f5d3\ufe0f"})
+
+    daily_cards = []
+    for day in forecast_rows:
+        date_label = datetime.strptime(day["date"], "%Y-%m-%d").strftime("%b %d, %Y")
+        daily_parts = [
+            f"Low {format_temperature_text(day['min'], temp_symbol, use_fahrenheit)}",
+            f"High {format_temperature_text(day['max'], temp_symbol, use_fahrenheit)}",
+            f"Rain {day.get('rain_chance', 0)}%",
+            f"Wind {format_wind_text(day.get('wind_speed', 0), speed_symbol)}",
+        ]
+        if (day.get("uv_index", 0) or 0) > 0:
+            daily_parts.append(f"UV {day['uv_index']}")
+
+        daily_cards.append(
+            {
+                "eyebrow": date_label,
+                "title": f"{day['day']} - {day['condition']}",
+                "body": " | ".join(daily_parts),
+                "icon": get_condition_icon(day["condition"]),
+            }
+        )
+
+    return {
+        "city": city_name,
+        "days_count": days_count,
+        "date_range_label": f"{start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')}",
+        "overview_title": f"{days_count}-day trip outlook",
+        "overview_body": (
+            f"{city_name} looks {temp_descriptor} overall from {start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')}, "
+            f"with {condition_summary} and a range from {trip_low_text} to {trip_high_text}. "
+            f"Rain stays {rain_descriptor}, winds look {wind_descriptor}, and {uv_sentence}"
+        ),
+        "overview_notes": overview_notes,
+        "packing_items": packing_items,
+        "daily_cards": daily_cards,
+    }
+
+
+def build_trip_plan_pdf_bundle(
+    origin_weather,
+    destination_weather,
+    forecast_rows,
+    trip_analysis,
+    temp_symbol,
+    speed_symbol,
+    use_fahrenheit,
+):
+    origin_city = origin_weather.get("resolved_city") if origin_weather else ""
+    destination_city = destination_weather.get("resolved_city") or trip_analysis["city"]
+    destination_current = destination_weather.get("current") or {}
+    origin_current = (origin_weather or {}).get("current") or {}
+
+    overview_notes = {note["label"]: note for note in trip_analysis.get("overview_notes", [])}
+    avg_temp_note = overview_notes.get("Average Temp", {"title": "--", "body": ""})
+    temp_range_note = overview_notes.get("Min / Max", {"title": "--", "body": ""})
+    rain_note = overview_notes.get("Rain Probability", {"title": "--", "body": ""})
+    wind_note = overview_notes.get("Wind Conditions", {"title": "--", "body": ""})
+    uv_note = overview_notes.get("UV Index", {"title": "--", "body": ""})
+
+    if origin_city:
+        route_label = f"{origin_city} to {destination_city}"
+        origin_body = (
+            f'{format_temperature_text(origin_current.get("temperature", 0), temp_symbol, use_fahrenheit)} | '
+            f'{origin_current.get("condition", "Current conditions")}'
+        )
+    else:
+        route_label = f"Trip plan to {destination_city}"
+        origin_body = "Optional starting location left blank for this plan."
+
+    destination_body = (
+        f'{format_temperature_text(destination_current.get("temperature", 0), temp_symbol, use_fahrenheit)} | '
+        f'{destination_current.get("condition", "Current conditions")}'
+    )
+
+    daily_rows = []
+    for day in forecast_rows:
+        display_date = datetime.strptime(day["date"], "%Y-%m-%d").strftime("%b %d, %Y")
+        daily_rows.append(
+            {
+                "Date": display_date,
+                "Day": day["day"],
+                "Condition": day["condition"],
+                "Low": format_temperature_text(day["min"], temp_symbol, use_fahrenheit),
+                "High": format_temperature_text(day["max"], temp_symbol, use_fahrenheit),
+                "Rain": f'{day.get("rain_chance", 0)}%',
+                "Wind": format_wind_text(day.get("wind_speed", 0), speed_symbol),
+                "UV": str(day.get("uv_index", 0)) if (day.get("uv_index", 0) or 0) > 0 else "--",
+            }
+        )
+
+    return {
+        "route_label": route_label,
+        "from_city": origin_city or "Not specified",
+        "to_city": destination_city,
+        "date_range_label": trip_analysis["date_range_label"],
+        "generated_at": datetime.now().strftime("%b %d, %Y %I:%M %p"),
+        "overview_body": trip_analysis["overview_body"],
+        "snapshot_cards": [
+            {
+                "label": "From",
+                "value": origin_city or "Not specified",
+                "body": origin_body,
+            },
+            {
+                "label": "Destination Now",
+                "value": destination_city,
+                "body": destination_body,
+            },
+            {
+                "label": "Temperature Profile",
+                "value": avg_temp_note["title"],
+                "body": temp_range_note["title"],
+            },
+            {
+                "label": "Trip Conditions",
+                "value": rain_note["title"],
+                "body": f'{wind_note["title"]} wind | {uv_note["title"]} UV',
+            },
+        ],
+        "packing_items": trip_analysis.get("packing_items", []),
+        "daily_rows": daily_rows,
+    }
+
+
+def build_trip_plan_pdf_artifact(
+    origin_query,
+    origin_selection,
+    destination_query,
+    destination_selection,
+    start_date,
+    end_date,
+    temp_symbol,
+    speed_symbol,
+    use_fahrenheit,
+):
+    if not destination_query:
+        raise ValueError("Choose a destination before creating the trip plan PDF.")
+    if start_date > end_date:
+        raise ValueError("Start date must be on or before the end date.")
+
+    destination_lookup = (
+        destination_selection
+        if destination_selection and destination_selection.get("latitude") is not None and destination_selection.get("longitude") is not None
+        else destination_query
+    )
+    destination_weather = get_weather(destination_lookup)
+
+    origin_weather = None
+    if origin_query:
+        origin_lookup = (
+            origin_selection
+            if origin_selection and origin_selection.get("latitude") is not None and origin_selection.get("longitude") is not None
+            else origin_query
+        )
+        if str(origin_query).strip().lower() == str(destination_weather.get("resolved_city") or "").strip().lower():
+            origin_weather = destination_weather
+        else:
+            origin_weather = get_weather(origin_lookup)
+
+    destination_location = destination_weather.get("location") or {}
+    if destination_location.get("latitude") is None or destination_location.get("longitude") is None:
+        raise WeatherError("Location data is missing for the selected destination.")
+
+    forecast_rows = get_daily_weather_range(
+        destination_location.get("latitude"),
+        destination_location.get("longitude"),
+        start_date,
+        end_date,
+        destination_location.get("timezone") or "auto",
+    )
+    trip_analysis = build_trip_planner_analysis(
+        destination_weather.get("resolved_city") or destination_query,
+        forecast_rows,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+    )
+    bundle = build_trip_plan_pdf_bundle(
+        origin_weather,
+        destination_weather,
+        forecast_rows,
+        trip_analysis,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+    )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    route_slug = sanitize_export_filename(
+        f'{bundle["from_city"]}_to_{bundle["to_city"]}' if origin_weather else f'trip_to_{bundle["to_city"]}'
+    )
+    filename = f"skyline_trip_plan_{route_slug}_{start_date.isoformat()}_to_{end_date.isoformat()}_{timestamp}.pdf"
+
+    return {
+        "bundle": bundle,
+        "bytes": build_trip_plan_pdf(bundle),
+        "filename": filename,
+        "origin_weather": origin_weather,
+        "destination_weather": destination_weather,
     }
 
 
@@ -1708,6 +2128,15 @@ def initialize_session_state():
         "compare_secondary_weather": None,
         "compare_primary_search_event_id": "",
         "compare_secondary_search_event_id": "",
+        "trip_planner_origin_query": "",
+        "trip_planner_origin_selection": None,
+        "trip_planner_origin_search_event_id": "",
+        "trip_planner_destination_query": "",
+        "trip_planner_destination_selection": None,
+        "trip_planner_destination_search_event_id": "",
+        "trip_planner_start_date": get_default_trip_planner_dates()[0],
+        "trip_planner_end_date": get_default_trip_planner_dates()[1],
+        "trip_planner_error": "",
         "preferences_loaded": False,
         "active_content_section": CONTENT_SECTIONS[0],
     }
@@ -2505,13 +2934,148 @@ def render_clothing_tab(intelligence_payload):
     render_visual_clothing_grid(intelligence_payload.get("clothing", []), state_prefix="wear")
 
 
-def render_activities_tab(intelligence_payload):
+def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
+    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Packing / Trip Planner</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Set an optional starting point, choose a destination, and export the full trip plan as a clean PDF instead of opening a large on-page result.</div>",
+        unsafe_allow_html=True,
+    )
+
+    route_columns = st.columns(2)
+    with route_columns[0]:
+        st.markdown("<div class='intel-card-kicker' style='margin-bottom: 0.35rem;'>Starting Location (Optional)</div>", unsafe_allow_html=True)
+        origin_event = SEARCH_COMPONENT(
+            initial_value=st.session_state.get("trip_planner_origin_query", ""),
+            recent_searches=get_search_component_recent_entries(),
+            placeholder="Where the trip starts",
+            enable_geolocation=False,
+            key="trip_planner_origin_search_component",
+            default=None,
+        )
+        handle_compare_search_component_event(
+            origin_event,
+            "trip_planner_origin_query",
+            "trip_planner_origin_selection",
+            "trip_planner_origin_search_event_id",
+        )
+    with route_columns[1]:
+        st.markdown("<div class='intel-card-kicker' style='margin-bottom: 0.35rem;'>Destination</div>", unsafe_allow_html=True)
+        destination_event = SEARCH_COMPONENT(
+            initial_value=st.session_state.get("trip_planner_destination_query", ""),
+            recent_searches=get_search_component_recent_entries(),
+            placeholder="Where the trip ends",
+            enable_geolocation=False,
+            key="trip_planner_destination_search_component",
+            default=None,
+        )
+        handle_compare_search_component_event(
+            destination_event,
+            "trip_planner_destination_query",
+            "trip_planner_destination_selection",
+            "trip_planner_destination_search_event_id",
+        )
+
+    min_date, max_date = get_trip_planner_picker_bounds()
+    date_columns = st.columns(2)
+    with date_columns[0]:
+        start_date = st.date_input(
+            "Start Date",
+            value=st.session_state.get("trip_planner_start_date"),
+            min_value=min_date,
+            max_value=max_date,
+            key="trip_planner_start_date",
+        )
+    with date_columns[1]:
+        end_date = st.date_input(
+            "End Date",
+            value=st.session_state.get("trip_planner_end_date"),
+            min_value=min_date,
+            max_value=max_date,
+            key="trip_planner_end_date",
+        )
+
+    st.caption(
+        f"Trip forecasts are currently available from {min_date.strftime('%b %d, %Y')} through {max_date.strftime('%b %d, %Y')}."
+    )
+
+    create_trip_pdf = st.button(
+        "Create Trip Plan PDF",
+        key="trip_planner_build_button",
+        type="primary",
+        use_container_width=True,
+    )
+
+    if create_trip_pdf:
+        origin_query = str(st.session_state.get("trip_planner_origin_query") or "").strip()
+        origin_selection = st.session_state.get("trip_planner_origin_selection")
+        destination_query = str(st.session_state.get("trip_planner_destination_query") or "").strip()
+        destination_selection = st.session_state.get("trip_planner_destination_selection")
+
+        try:
+            with st.spinner("Creating trip plan PDF..."):
+                artifact = build_trip_plan_pdf_artifact(
+                    origin_query,
+                    origin_selection,
+                    destination_query,
+                    destination_selection,
+                    start_date,
+                    end_date,
+                    temp_symbol,
+                    speed_symbol,
+                    use_fahrenheit,
+                )
+            st.session_state["trip_planner_error"] = ""
+
+            origin_weather = artifact.get("origin_weather")
+            destination_weather = artifact.get("destination_weather")
+            if origin_weather:
+                st.session_state["trip_planner_origin_query"] = origin_weather.get("resolved_city") or origin_query
+                st.session_state["trip_planner_origin_selection"] = build_weather_search_entry(origin_weather, meta="Recent search")
+                remember_recent_search(origin_weather)
+            if destination_weather:
+                st.session_state["trip_planner_destination_query"] = destination_weather.get("resolved_city") or destination_query
+                st.session_state["trip_planner_destination_selection"] = build_weather_search_entry(destination_weather, meta="Recent search")
+                remember_recent_search(destination_weather)
+
+            download_payload = {
+                "href": build_data_uri(artifact["bytes"], "application/pdf"),
+                "filename": artifact["filename"],
+            }
+            components.html(
+                f"""
+                <html>
+                  <body style="margin:0;background:transparent;">
+                    <script>
+                      const payload = {json.dumps(download_payload)};
+                      const link = document.createElement("a");
+                      link.href = payload.href;
+                      link.download = payload.filename;
+                      document.body.appendChild(link);
+                      link.click();
+                      setTimeout(() => link.remove(), 0);
+                    </script>
+                  </body>
+                </html>
+                """,
+                height=0,
+            )
+        except (ValueError, CityNotFoundError, ForecastDataError, WeatherError) as exc:
+            st.session_state["trip_planner_error"] = str(exc)
+
+    trip_planner_error = str(st.session_state.get("trip_planner_error") or "").strip()
+    if trip_planner_error:
+        st.warning(trip_planner_error)
+
+
+def render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit):
     st.markdown("<div class='section-title'>Activity Recommendations</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='section-subtitle'>Walking, outdoor effort, indoor backup plans, and travel suitability are split into separate recommendation cards.</div>",
         unsafe_allow_html=True,
     )
     render_guidance_card_grid(intelligence_payload.get("activities", []), grid_variant="activity")
+    render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit)
 
 
 def render_map_tab(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
@@ -2592,7 +3156,6 @@ def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol,
             recent_searches=get_search_component_recent_entries(),
             placeholder="First city",
             enable_geolocation=False,
-            emit_drafts=True,
             key="compare_primary_city_search_component",
             default=None,
         )
@@ -2609,7 +3172,6 @@ def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol,
             recent_searches=get_search_component_recent_entries(),
             placeholder="Second city",
             enable_geolocation=False,
-            emit_drafts=True,
             key="compare_secondary_city_search_component",
             default=None,
         )
@@ -2736,7 +3298,7 @@ def render_weather_tabbed_section(weather_to_show, city_to_show, temp_symbol, sp
     elif active_section == "What to Wear":
         render_clothing_tab(intelligence_payload)
     elif active_section == "Activities":
-        render_activities_tab(intelligence_payload)
+        render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit)
     elif active_section == "Map":
         render_map_tab(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit)
     elif active_section == "Compare":
