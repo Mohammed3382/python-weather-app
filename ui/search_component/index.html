@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Skyline Search</title>
+    <style>
+      :root {
+        font-family: "Segoe UI", sans-serif;
+        background: transparent;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: transparent;
+        border-radius: 42px;
+        overflow: hidden;
+      }
+
+      body {
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+        border-radius: 42px;
+      }
+
+      html, body, #root {
+        background-color: transparent !important;
+      }
+
+      .search-shell {
+        width: 100%;
+        position: relative;
+        padding: 0;
+      }
+
+      .search-panel {
+        position: relative;
+        padding: 0;
+        border-radius: 36px;
+        overflow: hidden;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        backdrop-filter: none;
+      }
+
+      .search-panel.is-open .search-control {
+        border-radius: 36px;
+      }
+
+      .search-control {
+        position: relative;
+        display: grid;
+        grid-template-columns: 3rem 1fr 4.15rem;
+        align-items: center;
+        min-height: 4.55rem;
+        border-radius: 36px;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08)),
+          linear-gradient(135deg, rgba(205,232,247,0.1), rgba(255,255,255,0.02));
+        border: 1px solid rgba(255,255,255,0.14);
+        overflow: hidden;
+        padding-right: 0.56rem;
+        box-shadow:
+          0 16px 42px rgba(4,15,32,0.18),
+          inset 0 1px 0 rgba(255,255,255,0.1);
+        backdrop-filter: blur(16px);
+      }
+
+      .search-control::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.07), transparent 16%);
+        pointer-events: none;
+      }
+
+      .search-icon {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(241, 248, 255, 0.76);
+      }
+
+      .search-icon svg,
+      .search-submit svg {
+        width: 1.16rem;
+        height: 1.16rem;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .search-input {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        min-height: 4.55rem;
+        border: 0;
+        background: transparent;
+        color: #f7fbff;
+        font-size: 1rem;
+        font-weight: 650;
+        padding: 0 0.12rem;
+        letter-spacing: 0.01em;
+        outline: none;
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+      }
+
+      .search-input::placeholder {
+        color: rgba(237, 245, 252, 0.62);
+      }
+
+      .search-submit {
+        position: relative;
+        z-index: 1;
+        width: 2.8rem;
+        height: 2.8rem;
+        justify-self: end;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.08));
+        color: #f5fbff;
+        cursor: pointer;
+        box-shadow:
+          0 10px 24px rgba(4,15,32,0.14);
+        transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+      }
+
+      .search-submit:hover {
+        transform: translateY(-1px);
+        background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.1));
+        border-color: rgba(255,255,255,0.18);
+      }
+
+      @media (max-width: 760px) {
+        .search-panel.is-open .search-control {
+          border-radius: 32px;
+        }
+
+        .search-control {
+          grid-template-columns: 2.8rem 1fr 3.7rem;
+          min-height: 4.18rem;
+          border-radius: 32px;
+          padding-right: 0.46rem;
+        }
+
+        .search-input {
+          min-height: 4.18rem;
+          font-size: 0.98rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="search-shell" id="search-shell">
+      <div class="search-panel" id="search-panel">
+        <div class="search-control">
+          <div class="search-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="6.25"></circle>
+              <path d="M16.2 16.2L20 20"></path>
+            </svg>
+          </div>
+          <input
+            id="city-search-input"
+            class="search-input"
+            type="text"
+            placeholder="Search any city worldwide"
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <button id="city-search-submit" class="search-submit" type="button" aria-label="Search city">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M5 12H19"></path>
+              <path d="M13 6L19 12L13 18"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const STREAMLIT_RENDER_EVENT = "streamlit:render";
+      const STREAMLIT_COMPONENT_READY = "streamlit:componentReady";
+      const STREAMLIT_SET_COMPONENT_VALUE = "streamlit:setComponentValue";
+      const STREAMLIT_SET_FRAME_HEIGHT = "streamlit:setFrameHeight";
+      const geocodingUrl = "https://geocoding-api.open-meteo.com/v1/search";
+      const geolocationStorageKey = "skyline-location-prompted-v2";
+
+      const shell = document.getElementById("search-shell");
+      const panel = document.getElementById("search-panel");
+      const input = document.getElementById("city-search-input");
+      const submit = document.getElementById("city-search-submit");
+      const hostWindow = window.parent;
+      const hostDoc = hostWindow.document;
+      const frameElement = window.frameElement;
+      const frameToken = String(frameElement?.id || `skyline-search-${Date.now()}`)
+        .replace(/[^a-zA-Z0-9_-]/g, "-");
+      const portalId = `skyline-search-portal-${frameToken}`;
+      const styleId = `skyline-search-portal-style-${frameToken}`;
+
+      let args = {};
+      let debounceHandle = null;
+      let activeQuery = "";
+      let activeIndex = -1;
+      let currentResults = [];
+      let lastInitialValue = null;
+      let portal = null;
+      let scrollArea = null;
+      let selectAllOnMouseUp = false;
+
+      const postMessage = (type, payload = {}) => {
+        hostWindow.postMessage({ isStreamlitMessage: true, type, ...payload }, "*");
+      };
+
+      const setComponentReady = () => {
+        postMessage(STREAMLIT_COMPONENT_READY, { apiVersion: 1 });
+      };
+
+      const setFrameHeight = (height = 104) => {
+        postMessage(STREAMLIT_SET_FRAME_HEIGHT, { height });
+      };
+
+      const setComponentValue = (value) => {
+        postMessage(STREAMLIT_SET_COMPONENT_VALUE, { value });
+      };
+
+      const makeEventId = () =>
+        `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+      const escapeHtml = (value) =>
+        String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+
+      const getStorage = () => {
+        try {
+          return hostWindow.localStorage;
+        } catch (error) {
+          return window.localStorage;
+        }
+      };
+
+      const ensurePortal = () => {
+        portal = hostDoc.getElementById(portalId);
+        if (!portal) {
+          portal = hostDoc.createElement("div");
+          portal.id = portalId;
+          hostDoc.body.appendChild(portal);
+        }
+
+        if (!hostDoc.getElementById(styleId)) {
+          const style = hostDoc.createElement("style");
+          style.id = styleId;
+          style.textContent = `
+            #${portalId} {
+              position: fixed;
+              z-index: 9998;
+              pointer-events: none;
+              opacity: 0;
+              transform: translateY(-0.45rem);
+              transition: opacity 0.26s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+            }
+            #${portalId}.is-open {
+              opacity: 1;
+              transform: translateY(0);
+              pointer-events: auto;
+            }
+            .skyline-search-dropdown {
+              position: relative;
+              overflow: hidden;
+              border-radius: 32px;
+              padding: 1.2rem 1.2rem 1rem;
+              background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08));
+              border: 1px solid rgba(255,255,255,0.14);
+              box-shadow: 0 16px 42px rgba(4,15,32,0.18);
+              backdrop-filter: blur(16px);
+            }
+            .skyline-search-dropdown::before {
+              content: "";
+              position: absolute;
+              inset: 0;
+              background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 16%);
+              pointer-events: none;
+            }
+            .skyline-search-scroll {
+              max-height: min(25rem, calc(100vh - 10rem));
+              overflow-y: auto;
+              padding: 0.08rem 0.22rem 0.26rem;
+            }
+            .skyline-search-scroll::-webkit-scrollbar {
+              width: 8px;
+            }
+            .skyline-search-scroll::-webkit-scrollbar-thumb {
+              background: rgba(255, 255, 255, 0.16);
+              border-radius: 999px;
+            }
+            .skyline-search-scroll::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            .skyline-search-option {
+              position: relative;
+              width: 100%;
+              display: block;
+              border: 1px solid transparent;
+              background: transparent;
+              color: #f5fbff;
+              padding: 0.94rem 1rem;
+              border-radius: 20px;
+              cursor: pointer;
+              text-align: left;
+              transition: background 0.22s ease, transform 0.22s ease, border-color 0.22s ease;
+            }
+            .skyline-search-option + .skyline-search-option {
+              margin-top: 0.14rem;
+            }
+            .skyline-search-option:hover,
+            .skyline-search-option.is-active {
+              background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+              border-color: rgba(255, 255, 255, 0.12);
+              transform: translateX(2px);
+            }
+            .skyline-search-option-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 0.75rem;
+            }
+            .skyline-search-option-primary {
+              font-size: 0.98rem;
+              font-weight: 600;
+              line-height: 1.24;
+            }
+            .skyline-search-option-badge {
+              flex-shrink: 0;
+              display: inline-flex;
+              align-items: center;
+              gap: 0.32rem;
+              padding: 0.22rem 0.52rem;
+              border-radius: 999px;
+              border: 1px solid rgba(255, 255, 255, 0.16);
+              background: rgba(255, 255, 255, 0.08);
+              color: rgba(240, 248, 255, 0.84);
+              font-size: 0.72rem;
+              letter-spacing: 0.03em;
+              text-transform: uppercase;
+            }
+            .skyline-search-option-badge-icon {
+              font-size: 0.84rem;
+              line-height: 1;
+            }
+            .skyline-search-option-secondary {
+              margin-top: 0.22rem;
+              font-size: 0.8rem;
+              letter-spacing: 0.02em;
+              color: rgba(229, 240, 248, 0.72);
+            }
+            .skyline-search-empty {
+              padding: 0.9rem 1.05rem 1rem;
+              color: rgba(229, 240, 248, 0.78);
+              font-size: 0.9rem;
+            }
+          `;
+          hostDoc.head.appendChild(style);
+        }
+
+        portal.innerHTML =
+          '<div class="skyline-search-dropdown"><div class="skyline-search-scroll" id="skyline-search-scroll"></div></div>';
+        scrollArea = portal.querySelector("#skyline-search-scroll");
+      };
+
+      const updatePortalPosition = () => {
+        if (!portal || !frameElement) {
+          return;
+        }
+
+        const frameRect = frameElement.getBoundingClientRect();
+        const controlRect = shell.querySelector(".search-control")?.getBoundingClientRect();
+
+        if (controlRect) {
+          portal.style.top = `${frameRect.top + controlRect.bottom - 2}px`;
+          portal.style.left = `${Math.max(frameRect.left + controlRect.left, 8)}px`;
+          portal.style.width = `${Math.max(controlRect.width, 260)}px`;
+          return;
+        }
+
+        portal.style.top = `${frameRect.bottom - 2}px`;
+        portal.style.left = `${Math.max(frameRect.left, 8)}px`;
+        portal.style.width = `${Math.max(frameRect.width, 260)}px`;
+      };
+
+      const setOpen = (isOpen) => {
+        const shouldOpen = isOpen && (currentResults.length > 0 || scrollArea.textContent.trim());
+        panel.classList.toggle("is-open", shouldOpen);
+        portal.classList.toggle("is-open", shouldOpen);
+        if (shouldOpen) {
+          updatePortalPosition();
+        }
+        setFrameHeight(104);
+      };
+
+      const hideResults = () => {
+        currentResults = [];
+        activeIndex = -1;
+        scrollArea.innerHTML = "";
+        setOpen(false);
+      };
+
+      const applyActiveState = () => {
+        const options = Array.from(scrollArea.querySelectorAll(".skyline-search-option"));
+        options.forEach((option, index) => {
+          option.classList.toggle("is-active", index === activeIndex);
+          option.setAttribute("aria-selected", index === activeIndex ? "true" : "false");
+          if (index === activeIndex) {
+            option.scrollIntoView({ block: "nearest" });
+          }
+        });
+      };
+
+      const renderResults = (items) => {
+        if (!items.length) {
+          currentResults = [];
+          activeIndex = -1;
+          scrollArea.innerHTML =
+            '<div class="skyline-search-empty">No matches yet. Try another city or country.</div>';
+          setOpen(true);
+          return;
+        }
+
+        currentResults = items;
+        activeIndex = 0;
+        scrollArea.innerHTML = items
+          .map(
+            (item, index) => `
+              <button
+                class="skyline-search-option"
+                type="button"
+                role="option"
+                data-index="${index}"
+                aria-selected="${index === 0 ? "true" : "false"}"
+              >
+                <div class="skyline-search-option-header">
+                  <div class="skyline-search-option-primary">${escapeHtml(item.label)}</div>
+                  ${item.isRecent ? '<div class="skyline-search-option-badge"><span class="skyline-search-option-badge-icon">&#8635;</span><span>Recent</span></div>' : ""}
+                </div>
+                <div class="skyline-search-option-secondary">${escapeHtml(item.meta)}</div>
+              </button>
+            `
+          )
+          .join("");
+        applyActiveState();
+        setOpen(true);
+      };
+
+      const normalizeResults = (items, query) => {
+        const loweredQuery = query.trim().toLowerCase();
+        const seenLabels = new Set();
+
+        return items
+          .map((item) => {
+            const parts = [];
+            [item.name, item.admin1, item.country].forEach((part) => {
+              if (part && !parts.includes(part)) {
+                parts.push(part);
+              }
+            });
+            const label = parts.join(", ");
+            return {
+              label,
+              meta: [item.admin1, item.country].filter(Boolean).join(" | ") || "Suggested location",
+              query: label,
+              latitude: item.latitude,
+              longitude: item.longitude,
+              population: item.population || 0,
+              isRecent: false,
+              rank:
+                ((item.name || "").toLowerCase() === loweredQuery ? 0 : 1) +
+                ((item.name || "").toLowerCase().startsWith(loweredQuery) ? 0 : 2) +
+                (label.toLowerCase().startsWith(loweredQuery) ? 0 : 3),
+            };
+          })
+          .filter((item) => item.label)
+          .sort((left, right) => {
+            if (left.rank !== right.rank) {
+              return left.rank - right.rank;
+            }
+            if (left.population !== right.population) {
+              return right.population - left.population;
+            }
+            return left.label.localeCompare(right.label);
+          })
+          .filter((item) => {
+            if (seenLabels.has(item.label)) {
+              return false;
+            }
+            seenLabels.add(item.label);
+            return true;
+          })
+          .slice(0, 8);
+      };
+
+      const getRecentMatches = (query) => {
+        const loweredQuery = query.trim().toLowerCase();
+        return (Array.isArray(args.recent_searches) ? args.recent_searches : [])
+          .map((item) => ({
+            label: String(item.label || item.query || "").trim(),
+            meta: String(item.meta || "Recent search"),
+            query: String(item.query || item.label || "").trim(),
+            latitude: item.latitude,
+            longitude: item.longitude,
+            isRecent: true,
+            rank: 0,
+          }))
+          .filter((item) => item.label)
+          .filter(
+            (item) =>
+              !loweredQuery ||
+              item.label.toLowerCase().includes(loweredQuery) ||
+              item.query.toLowerCase().includes(loweredQuery)
+          )
+          .slice(0, 4);
+      };
+
+      const mergeResults = (recentMatches, apiMatches) => {
+        const seenLabels = new Set();
+        return [...recentMatches, ...apiMatches].filter((item) => {
+          const key = item.label.toLowerCase();
+          if (seenLabels.has(key)) {
+            return false;
+          }
+          seenLabels.add(key);
+          return true;
+        });
+      };
+
+      const emitSearchEvent = (action, payload) => {
+        setComponentValue({
+          event_id: makeEventId(),
+          action,
+          payload,
+        });
+      };
+
+      const submitTypedSearch = () => {
+        const query = input.value.trim();
+        if (!query) {
+          return;
+        }
+        hideResults();
+        emitSearchEvent("search", {
+          query,
+          label: query,
+        });
+      };
+
+      const selectItem = (index) => {
+        const item = currentResults[index];
+        if (!item) {
+          submitTypedSearch();
+          return;
+        }
+
+        input.value = item.label;
+        hideResults();
+        emitSearchEvent("search", item);
+      };
+
+      const searchCities = async (query) => {
+        activeQuery = query;
+        const recentMatches = getRecentMatches(query);
+        if (query.trim().length < 2) {
+          if (recentMatches.length) {
+            renderResults(recentMatches);
+          } else {
+            hideResults();
+          }
+          return;
+        }
+
+        try {
+          const url = `${geocodingUrl}?name=${encodeURIComponent(query)}&count=12&language=en&format=json`;
+          const response = await fetch(url);
+          const data = await response.json();
+          if (activeQuery !== query) {
+            return;
+          }
+          renderResults(mergeResults(recentMatches, normalizeResults(data.results || [], query)));
+        } catch (error) {
+          if (recentMatches.length) {
+            renderResults(recentMatches);
+          } else {
+            hideResults();
+          }
+        }
+      };
+
+      const syncInputFromArgs = () => {
+        const nextValue = String(args.initial_value || "").trim();
+        const isFocused = document.activeElement === input;
+        if (nextValue !== lastInitialValue) {
+          if (!isFocused || input.value.trim() !== nextValue) {
+            input.value = nextValue;
+          }
+          lastInitialValue = nextValue;
+          if (!isFocused) {
+            hideResults();
+          }
+          return;
+        }
+
+        if (!isFocused) {
+          input.value = nextValue;
+        }
+      };
+
+      const maybePromptForLocation = () => {
+        if (args.enable_geolocation === false) {
+          return;
+        }
+
+        const storage = getStorage();
+        if (storage.getItem(geolocationStorageKey) || !("geolocation" in navigator)) {
+          return;
+        }
+
+        storage.setItem(geolocationStorageKey, "1");
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            input.value = "Current location";
+            hideResults();
+            emitSearchEvent("geolocation", {
+              label: "Your Location",
+              query: "Your Location",
+              latitude: Number(position.coords.latitude.toFixed(4)),
+              longitude: Number(position.coords.longitude.toFixed(4)),
+            });
+          },
+          () => {},
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 600000 }
+        );
+      };
+
+      const handleHostPointerDown = (event) => {
+        if (portal.contains(event.target) || shell.contains(event.target)) {
+          return;
+        }
+        hideResults();
+      };
+
+      const handleWindowChange = () => {
+        if (portal.classList.contains("is-open")) {
+          updatePortalPosition();
+        }
+      };
+
+      input.addEventListener("input", (event) => {
+        clearTimeout(debounceHandle);
+        const nextValue = event.target.value;
+        debounceHandle = setTimeout(() => {
+          if (args.emit_drafts === true) {
+            emitSearchEvent("draft", {
+              query: nextValue,
+              label: nextValue,
+            });
+          }
+          searchCities(nextValue);
+        }, 180);
+      });
+
+      input.addEventListener("focus", () => {
+        const shouldAutoSelect =
+          args.auto_select_on_focus !== false && input.value.trim().length > 0;
+        selectAllOnMouseUp = shouldAutoSelect;
+        if (shouldAutoSelect) {
+          hostWindow.requestAnimationFrame(() => {
+            if (document.activeElement === input) {
+              input.select();
+            }
+          });
+        }
+        if (input.value.trim().length >= 2) {
+          searchCities(input.value);
+        }
+        updatePortalPosition();
+        setFrameHeight(104);
+      });
+
+      input.addEventListener("mouseup", (event) => {
+        if (!selectAllOnMouseUp) {
+          return;
+        }
+        event.preventDefault();
+        input.select();
+        selectAllOnMouseUp = false;
+      });
+
+      input.addEventListener("blur", () => {
+        selectAllOnMouseUp = false;
+      });
+
+      submit.addEventListener("click", () => {
+        if (currentResults.length && activeIndex >= 0 && panel.classList.contains("is-open")) {
+          selectItem(activeIndex);
+        } else {
+          submitTypedSearch();
+        }
+      });
+
+      input.addEventListener("keydown", (event) => {
+        selectAllOnMouseUp = false;
+        if (event.key === "ArrowDown" && currentResults.length) {
+          event.preventDefault();
+          activeIndex = Math.min(activeIndex + 1, currentResults.length - 1);
+          applyActiveState();
+          return;
+        }
+
+        if (event.key === "ArrowUp" && currentResults.length) {
+          event.preventDefault();
+          activeIndex = Math.max(activeIndex - 1, 0);
+          applyActiveState();
+          return;
+        }
+
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (currentResults.length && panel.classList.contains("is-open") && activeIndex >= 0) {
+            selectItem(activeIndex);
+          } else {
+            submitTypedSearch();
+          }
+        }
+
+        if (event.key === "Escape") {
+          hideResults();
+        }
+      });
+
+      const handleScrollAreaClick = (event) => {
+        const option = event.target.closest(".skyline-search-option");
+        if (!option) {
+          return;
+        }
+        selectItem(Number(option.dataset.index));
+      };
+
+      const handleScrollAreaMove = (event) => {
+        const option = event.target.closest(".skyline-search-option");
+        if (!option) {
+          return;
+        }
+        activeIndex = Number(option.dataset.index);
+        applyActiveState();
+      };
+
+      const handleRender = (event) => {
+        if (!event.data || event.data.type !== STREAMLIT_RENDER_EVENT) {
+          return;
+        }
+        args = event.data.args || {};
+        input.placeholder = String(args.placeholder || "Search any city worldwide");
+        syncInputFromArgs();
+        maybePromptForLocation();
+        setFrameHeight(104);
+      };
+
+      ensurePortal();
+      scrollArea.addEventListener("click", handleScrollAreaClick);
+      scrollArea.addEventListener("mousemove", handleScrollAreaMove);
+      hostDoc.addEventListener("pointerdown", handleHostPointerDown, true);
+      hostWindow.addEventListener("resize", handleWindowChange);
+      hostWindow.addEventListener("scroll", handleWindowChange, true);
+      window.addEventListener("message", handleRender);
+
+      setComponentReady();
+      setFrameHeight(104);
+    </script>
+  </body>
+</html>

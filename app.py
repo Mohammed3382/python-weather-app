@@ -1,0 +1,3896 @@
+import base64
+import json
+from datetime import date, datetime, timedelta
+from html import escape
+from pathlib import Path
+from textwrap import dedent
+
+import streamlit as st
+import streamlit.components.v1 as components
+
+from services.weather_client import (
+    CityNotFoundError,
+    ForecastDataError,
+    WeatherError,
+    get_daily_weather_range,
+    get_weather,
+    load_last_weather_state,
+    save_last_weather_state,
+)
+from services.exporters import (
+    build_csv_export,
+    build_excel_export,
+    build_pdf_export,
+)
+from services.clothing_catalog import get_clothing_visual_bundle
+from services.user_preferences import (
+    load_user_preferences,
+    save_user_preferences,
+)
+from ui.components import (
+    apply_theme,
+    format_precipitation,
+    get_background_path,
+    get_condition_icon,
+    get_feels_like_icon,
+    get_humidity_icon,
+    get_temp_icon,
+    get_wind_icon,
+    render_expandable_metric_card,
+    render_guidance_card_grid,
+    render_live_weather_map,
+    render_visual_clothing_grid,
+    render_recommendation_card,
+    render_todays_insight_card,
+    render_topbar,
+    render_weather_alert_banner,
+    render_weather_score_row,
+)
+
+
+SEARCH_COMPONENT = components.declare_component(
+    "skyline_search_glass",
+    path=str(Path(__file__).resolve().parent / "ui" / "search_component"),
+)
+
+
+# User-facing constants for unit controls.
+TEMP_OPTIONS = ["Celsius (\u00b0C)", "Fahrenheit (\u00b0F)"]
+SPEED_OPTIONS = ["km/h", "mph"]
+EXPORT_RANGE_OPTIONS = [
+    ("today", "Today"),
+    ("next_3_days", "Next 3 Days"),
+    ("next_7_days", "Next 7 Days"),
+    ("next_10_days", "Next 10 Days"),
+    ("past_3_days", "Past 3 Days"),
+    ("past_7_days", "Past 7 Days"),
+    ("past_10_days", "Past 10 Days"),
+    ("custom_range", "Custom Range"),
+]
+EXPORT_FORMAT_OPTIONS = [
+    ("csv", "CSV"),
+    ("excel", "Excel"),
+    ("pdf", "PDF"),
+]
+EXPORT_PAST_LOOKBACK_LIMIT_DAYS = 30
+EXPORT_FUTURE_LOOKAHEAD_LIMIT_DAYS = 16
+EXPORT_MAX_SELECTED_DAYS = 20
+MAP_LAYER_OPTIONS = ["Clouds", "Temperature", "Rain", "Wind", "Pressure", "Radar", "Satellite"]
+CONTENT_SECTIONS = ["Overview", "Insights", "What to Wear", "Activities", "Map", "Compare"]
+
+
+# Unit conversion helpers keep display logic straightforward.
+def celsius_to_fahrenheit(value):
+    return (value * 9 / 5) + 32
+
+
+def kmh_to_mph(value):
+    return value * 0.621371
+
+
+def format_temperature_value(value, use_fahrenheit=False):
+    display_value = celsius_to_fahrenheit(value) if use_fahrenheit else value
+    return round(display_value, 1)
+
+
+def format_temperature_delta(value, use_fahrenheit=False):
+    display_value = value * 9 / 5 if use_fahrenheit else value
+    return round(abs(display_value), 1)
+
+
+def format_temperature_text(value, temp_symbol, use_fahrenheit=False):
+    return f"{format_temperature_value(value, use_fahrenheit)}{temp_symbol}"
+
+
+def format_wind_value(value, speed_symbol):
+    display_value = kmh_to_mph(value) if speed_symbol == "mph" else value
+    return round(display_value, 1)
+
+
+def format_wind_text(value, speed_symbol):
+    return f"{format_wind_value(value, speed_symbol)} {speed_symbol}"
+
+
+def clamp_score(value):
+    return max(0, min(int(round(value)), 10))
+
+
+def calculate_weather_scores(weather_to_show):
+    current = weather_to_show["current"]
+    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    current_temp = current["temperature"]
+    humidity = current["humidity"]
+    wind_speed = current["wind"]
+    rain_chance = today.get("rain_chance", 0)
+    precipitation = current.get("precipitation", 0)
+    visibility = current.get("visibility", 10)
+    condition = current["condition"]
+
+    comfort = 10.0
+    comfort -= max(0, current_temp - 26) * 0.28
+    comfort -= max(0, 18 - current_temp) * 0.34
+    comfort -= max(0, humidity - 65) * 0.04
+    comfort -= max(0, 30 - humidity) * 0.04
+    comfort -= max(0, wind_speed - 25) * 0.07
+    comfort -= min(rain_chance, 100) * 0.012
+    comfort -= min(precipitation, 10) * 0.35
+    if condition == "Thunderstorm":
+        comfort -= 2.5
+    elif condition == "Snowy":
+        comfort -= 1.4
+
+    outdoor = 10.0
+    outdoor -= max(0, current_temp - 30) * 0.26
+    outdoor -= max(0, 10 - current_temp) * 0.40
+    outdoor -= min(rain_chance, 100) * 0.035
+    outdoor -= min(precipitation, 10) * 0.40
+    outdoor -= max(0, wind_speed - 18) * 0.09
+    if condition in {"Thunderstorm", "Snowy"}:
+        outdoor -= 2.8
+    elif condition == "Rainy":
+        outdoor -= 1.2
+
+    travel = 10.0
+    travel -= min(rain_chance, 100) * 0.025
+    travel -= min(precipitation, 10) * 0.35
+    travel -= max(0, wind_speed - 28) * 0.08
+    if visibility < 4:
+        travel -= (4 - visibility) * 0.9
+    if condition == "Foggy":
+        travel -= 1.8
+    elif condition == "Thunderstorm":
+        travel -= 3.0
+    elif condition == "Snowy":
+        travel -= 2.5
+
+    return {
+        "comfort": clamp_score(comfort),
+        "outdoor": clamp_score(outdoor),
+        "travel": clamp_score(travel),
+    }
+
+
+def build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    current = weather_to_show["current"]
+    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    alerts = []
+    day_high = today.get("max", current["temperature"])
+    day_low = today.get("min", current["temperature"])
+    rain_chance = today.get("rain_chance", 0)
+    wind_speed = current["wind"]
+
+    if current["condition"] == "Thunderstorm":
+        alerts.append(
+            {
+                "tone": "danger",
+                "icon": "\u26c8\ufe0f",
+                "title": "Storm conditions are active",
+                "body": "Thunderstorm activity makes outdoor plans and longer travel less reliable right now.",
+            }
+        )
+
+    if day_high >= 35:
+        alerts.append(
+            {
+                "tone": "warning",
+                "icon": "\U0001f525",
+                "title": "High temperature warning",
+                "body": f"Today's peak is around {format_temperature_text(day_high, temp_symbol, use_fahrenheit)}, so midday heat can feel intense.",
+            }
+        )
+
+    if rain_chance >= 55 or current.get("precipitation", 0) >= 0.3:
+        alerts.append(
+            {
+                "tone": "info",
+                "icon": "\U0001f327\ufe0f",
+                "title": "Rain is likely",
+                "body": f"Rain chance is near {rain_chance}%, so it is worth planning for wet surfaces and possible showers.",
+            }
+        )
+
+    if wind_speed >= 30:
+        alerts.append(
+            {
+                "tone": "warning",
+                "icon": "\U0001f32c\ufe0f",
+                "title": "Strong wind warning",
+                "body": f"Winds are around {format_wind_text(wind_speed, speed_symbol)}, which can make outdoor time feel noticeably rougher.",
+            }
+        )
+
+    if day_low <= 8 or current["temperature"] <= 8:
+        alerts.append(
+            {
+                "tone": "notice",
+                "icon": "\u2744\ufe0f",
+                "title": "Cold weather notice",
+                "body": f"Temperatures are dropping toward {format_temperature_text(day_low, temp_symbol, use_fahrenheit)}, so warmer layers will help.",
+            }
+        )
+
+    if not alerts:
+        alerts.append(
+            {
+                "tone": "calm",
+                "icon": "\u2705",
+                "title": "No major weather alerts",
+                "body": "Conditions look fairly steady right now with no strong warning signals from the current snapshot.",
+            }
+        )
+
+    return alerts[:4]
+
+
+def build_weather_score_cards(weather_to_show):
+    current = weather_to_show["current"]
+    rain_chance = weather_to_show["forecast"][0].get("rain_chance", 0) if weather_to_show.get("forecast") else 0
+    scores = calculate_weather_scores(weather_to_show)
+
+    score_cards = [
+        {
+            "key": "comfort",
+            "label": "Comfort Score",
+            "value": scores["comfort"],
+            "summary": (
+                "Air feels balanced and easy to stay in."
+                if scores["comfort"] >= 8
+                else "Conditions are manageable, but one factor may feel noticeable."
+                if scores["comfort"] >= 5
+                else "Comfort is limited, so shade, hydration, or extra layers may help."
+            ),
+        },
+        {
+            "key": "outdoor",
+            "label": "Outdoor Score",
+            "value": scores["outdoor"],
+            "summary": (
+                "Parks, walks, and open-air time look favorable."
+                if scores["outdoor"] >= 8
+                else "Outdoor plans still work, but timing and pacing matter."
+                if scores["outdoor"] >= 5
+                else "Outdoor time is less appealing under the current setup."
+            ),
+        },
+        {
+            "key": "travel",
+            "label": "Travel Score",
+            "value": scores["travel"],
+            "summary": (
+                "General movement and local travel should feel smooth."
+                if scores["travel"] >= 8
+                else "Travel is still workable, though weather may slow things down a bit."
+                if scores["travel"] >= 5
+                else "Weather can interfere with easier travel conditions today."
+            ),
+        },
+    ]
+
+    if current["condition"] == "Foggy" and rain_chance < 35:
+        score_cards[2]["summary"] = "Visibility is the main travel limiter even though precipitation is not the issue."
+
+    return score_cards
+
+
+def build_forecast_trend_insight(weather_to_show, temp_symbol, use_fahrenheit):
+    forecast = weather_to_show.get("forecast") or []
+    current = weather_to_show.get("current") or {}
+    actual_temp = current.get("temperature", 0)
+    trend_window = forecast[:7]
+    if len(trend_window) < 2:
+        return None
+
+    start_high = trend_window[0].get("max", actual_temp)
+    end_high = trend_window[-1].get("max", actual_temp)
+    rain_values = [day.get("rain_chance", 0) for day in trend_window]
+    peak_rain = max(rain_values) if rain_values else 0
+    average_rain = round(sum(rain_values) / len(rain_values)) if rain_values else 0
+    high_shift = end_high - start_high
+    low_span = min(day.get("max", actual_temp) for day in trend_window)
+    high_span = max(day.get("max", actual_temp) for day in trend_window)
+
+    if high_shift >= 3:
+        trend_title = "Warming trend is building"
+        trend_body = (
+            f"Forecast highs climb from {format_temperature_text(start_high, temp_symbol, use_fahrenheit)} "
+            f"to {format_temperature_text(end_high, temp_symbol, use_fahrenheit)} across the next {len(trend_window)} days, "
+            f"with rain chances reaching {peak_rain}%."
+        )
+    elif high_shift <= -3:
+        trend_title = "Cooling trend is setting in"
+        trend_body = (
+            f"Forecast highs ease from {format_temperature_text(start_high, temp_symbol, use_fahrenheit)} "
+            f"to {format_temperature_text(end_high, temp_symbol, use_fahrenheit)} over the next {len(trend_window)} days, "
+            f"while rain chances peak near {peak_rain}%."
+        )
+    else:
+        trend_title = "Temperatures stay fairly stable"
+        trend_body = (
+            f"Highs hold between {format_temperature_text(low_span, temp_symbol, use_fahrenheit)} "
+            f"and {format_temperature_text(high_span, temp_symbol, use_fahrenheit)} through the next {len(trend_window)} days, "
+            f"with average rain chances around {average_rain}%."
+        )
+
+    return {
+        "eyebrow": "Forecast Trend",
+        "title": trend_title,
+        "body": trend_body,
+        "icon": "\U0001f4c8",
+    }
+
+
+def build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    current = weather_to_show["current"]
+    actual_temp = current["temperature"]
+    feels_like = current["feels_like"]
+    humidity = current["humidity"]
+    wind_speed = current["wind"]
+    temp_gap = feels_like - actual_temp
+
+    if temp_gap >= 2:
+        feels_like_title = "Feels warmer than the reading"
+        feels_like_body = (
+            f"It feels about {format_temperature_delta(temp_gap, use_fahrenheit)}{temp_symbol} warmer than the measured "
+            f"{format_temperature_text(actual_temp, temp_symbol, use_fahrenheit)} because moisture is reducing how quickly your body can cool."
+        )
+    elif temp_gap <= -2:
+        feels_like_title = "Feels cooler than the reading"
+        feels_like_body = (
+            f"It feels about {format_temperature_delta(temp_gap, use_fahrenheit)}{temp_symbol} cooler than the measured "
+            f"{format_temperature_text(actual_temp, temp_symbol, use_fahrenheit)} because moving air is pulling heat away faster."
+        )
+    else:
+        feels_like_title = "Feels close to the actual temperature"
+        feels_like_body = (
+            f"Feels-like and actual temperature are closely aligned, so conditions should feel near "
+            f"{format_temperature_text(actual_temp, temp_symbol, use_fahrenheit)} for most people."
+        )
+
+    if humidity < 30:
+        humidity_title = "Dry air setup"
+        humidity_body = f"Humidity is {humidity}%, which can feel dry on the skin and throat during longer periods outside."
+    elif humidity <= 60:
+        humidity_title = "Comfortable humidity"
+        humidity_body = f"Humidity is {humidity}%, staying in a fairly balanced comfort range for day-to-day activity."
+    elif humidity <= 75:
+        humidity_title = "Slightly sticky air"
+        humidity_body = f"Humidity is {humidity}%, so the air may feel a little heavier during walks or longer errands."
+    else:
+        humidity_title = "Muggy humidity"
+        humidity_body = f"Humidity is {humidity}%, which can make the air feel warmer and reduce cooling comfort."
+
+    if wind_speed < 10:
+        wind_title = "Light air movement"
+        wind_body = f"Winds are light at about {format_wind_text(wind_speed, speed_symbol)}, so the air should feel fairly still."
+    elif wind_speed < 25:
+        wind_title = "Steady breeze"
+        wind_body = f"A breeze near {format_wind_text(wind_speed, speed_symbol)} keeps the air moving without feeling too rough."
+    elif wind_speed < 35:
+        wind_title = "Noticeable wind"
+        wind_body = f"Winds near {format_wind_text(wind_speed, speed_symbol)} will be easy to notice, especially in open areas."
+    else:
+        wind_title = "Wind is a major factor"
+        wind_body = f"Strong wind around {format_wind_text(wind_speed, speed_symbol)} can noticeably change comfort and outdoor plans."
+
+    insights = [
+        {"eyebrow": "Feels-Like Logic", "title": feels_like_title, "body": feels_like_body, "icon": "\U0001f321\ufe0f"},
+        {"eyebrow": "Humidity Comfort", "title": humidity_title, "body": humidity_body, "icon": "\U0001f4a7"},
+        {"eyebrow": "Wind Summary", "title": wind_title, "body": wind_body, "icon": "\U0001f32c\ufe0f"},
+    ]
+
+    trend_insight = build_forecast_trend_insight(weather_to_show, temp_symbol, use_fahrenheit)
+    if trend_insight:
+        insights.append(trend_insight)
+
+    return insights
+
+
+def build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    current = weather_to_show["current"]
+    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    rain_chance = today.get("rain_chance", 0)
+    scores = calculate_weather_scores(weather_to_show)
+    current_temp_text = format_temperature_text(current["temperature"], temp_symbol, use_fahrenheit)
+    wind_text = format_wind_text(current["wind"], speed_symbol)
+
+    if scores["outdoor"] >= 8:
+        walk_title = "Strong outdoor walk window"
+        walk_body = f"{current['condition']} conditions, {current_temp_text}, and {wind_text} support a comfortable walk for most people."
+    elif scores["outdoor"] >= 5:
+        walk_title = "Walks are still reasonable"
+        walk_body = f"Outdoor time can still work, but the mix of {current['condition'].lower()} conditions and a {rain_chance}% rain chance may affect timing."
+    else:
+        walk_title = "Outdoor walks are not ideal"
+        walk_body = "The current weather setup makes longer outdoor walks less comfortable, so a shorter route or indoor option is smarter."
+
+    if scores["comfort"] >= 8 and scores["outdoor"] >= 7:
+        exercise_title = "Outdoor exercise looks good"
+        exercise_body = "A walk, run, or lighter workout outside should feel reasonable as long as you stay hydrated."
+    elif scores["comfort"] >= 5:
+        exercise_title = "Keep exercise lighter"
+        exercise_body = "Shorter sessions, slower pacing, or an early or late time slot will feel better than hard midday effort."
+    else:
+        exercise_title = "Choose indoor exercise"
+        exercise_body = "Indoor training is the better call while the current weather is putting more strain on comfort."
+
+    if scores["outdoor"] <= 5 or rain_chance >= 55 or current["condition"] in {"Thunderstorm", "Snowy"}:
+        indoor_title = "Indoor plan is the better backup"
+        indoor_body = "Indoor workouts, errands, reading spots, or cafe time are the smoother option if you want reliable comfort."
+    else:
+        indoor_title = "Indoor backup is optional"
+        indoor_body = "You probably will not need to move plans indoors unless conditions shift later in the day."
+
+    if scores["travel"] >= 8:
+        travel_title = "Travel and movement look smooth"
+        travel_body = "Errands, short drives, and general movement should feel straightforward with little weather friction."
+    elif scores["travel"] >= 5:
+        travel_title = "Allow a little extra time"
+        travel_body = (
+            f"Movement still works, but {current['condition'].lower()} conditions and a {rain_chance}% rain chance may slow parts of the day."
+        )
+    elif current["condition"] == "Foggy":
+        travel_title = "Visibility can slow movement"
+        travel_body = f"Fog and about {current['visibility']} km visibility can make driving and cycling feel less relaxed than usual."
+    else:
+        travel_title = "Weather can disrupt movement"
+        travel_body = "Short trips are still possible, but rain, wind, or rougher conditions make movement less convenient."
+
+    return [
+        {"eyebrow": "Walking", "title": walk_title, "body": walk_body, "icon": "\U0001f6b6"},
+        {"eyebrow": "Outdoor Exercise", "title": exercise_title, "body": exercise_body, "icon": "\U0001f3c3"},
+        {"eyebrow": "Indoor Backup", "title": indoor_title, "body": indoor_body, "icon": "\U0001f3e0"},
+        {"eyebrow": "Travel / Movement", "title": travel_title, "body": travel_body, "icon": "\U0001f9ed"},
+    ]
+
+
+def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    current = weather_to_show["current"]
+    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    current_temp = current["temperature"]
+    rain_chance = today.get("rain_chance", 0)
+    uv_index = today.get("uv_index", 0)
+    wind_speed = current["wind"]
+    precipitation = current.get("precipitation", 0)
+
+    if current_temp >= 28:
+        tops_body = "Choose a breathable T-shirt, airy short-sleeve shirt, or sleeveless layer to stay cooler through the warmest hours."
+        bottoms_body = "Shorts or lightweight trousers will feel better than heavy denim or anything restrictive."
+    elif current_temp >= 18:
+        tops_body = "A light tee, polo, or breathable long-sleeve top gives enough flexibility for the day."
+        bottoms_body = "Light jeans, chinos, or relaxed full-length pants should stay comfortable from morning to evening."
+    elif current_temp >= 10:
+        tops_body = "A long-sleeve top, knit, or tee with a mid-layer will handle the cooler air better."
+        bottoms_body = "Full-length pants are the safer base, especially if the breeze picks up."
+    else:
+        tops_body = "Use a warmer knit, thermal base, or heavier long-sleeve layer to hold heat more effectively."
+        bottoms_body = "Heavier pants or lined trousers will feel more balanced than lightweight fabrics."
+
+    if current_temp < 12 or wind_speed >= 25 or rain_chance >= 45:
+        outer_title = "Keep an outer layer ready"
+        outer_body = f"A jacket, shell, or wind-resistant layer will help when wind reaches {format_wind_text(wind_speed, speed_symbol)} or showers move in."
+    else:
+        outer_title = "Outerwear can stay light"
+        outer_body = "A cardigan, overshirt, or packable layer is enough unless you tend to get cold easily."
+
+    if current["condition"] in {"Rainy", "Snowy"} or precipitation >= 0.2:
+        shoes_body = "Closed shoes with decent grip are the safer choice for damp ground and changing surfaces."
+    elif current_temp >= 28 and rain_chance < 20:
+        shoes_body = "Breathable sneakers or comfortable sandals work well if you are mostly staying on dry ground."
+    else:
+        shoes_body = "Comfortable sneakers or everyday closed shoes are the easiest all-day choice."
+
+    accessory_notes = []
+    if uv_index >= 6 or (current["condition"] == "Sunny" and rain_chance < 20):
+        accessory_notes.append("sunglasses or a cap for sun exposure")
+    if current_temp < 10:
+        accessory_notes.append("a scarf or warmer accessory for the cooler air")
+    if wind_speed >= 25:
+        accessory_notes.append("secure accessories that will not shift in the breeze")
+    if not accessory_notes:
+        accessory_notes.append("your usual watch, bag, or light extras")
+
+    add_ons = []
+    if rain_chance >= 45 or precipitation >= 0.2:
+        add_ons.append("Umbrella")
+    if uv_index >= 6 or (current["condition"] == "Sunny" and rain_chance < 20):
+        add_ons.append("Sunscreen")
+    if wind_speed >= 30:
+        add_ons.append("Wind-resistant layer")
+    if current["condition"] in {"Rainy", "Snowy"}:
+        add_ons.append("Water-resistant bag or cover")
+    if not add_ons:
+        add_ons.append("No special extras stand out today")
+
+    tops_visual = get_clothing_visual_bundle("tops", weather_to_show)
+    bottoms_visual = get_clothing_visual_bundle("bottoms", weather_to_show)
+    outerwear_visual = get_clothing_visual_bundle("outerwear", weather_to_show)
+    shoes_visual = get_clothing_visual_bundle("shoes", weather_to_show)
+    accessories_visual = get_clothing_visual_bundle("accessories", weather_to_show)
+    add_ons_visual = get_clothing_visual_bundle("weather_add_ons", weather_to_show)
+
+    return [
+        {
+            "item_id": "tops",
+            "eyebrow": "Tops",
+            "title": "Top layers",
+            "body": tops_body,
+            "icon": "\U0001f455",
+            "visual_profile": tops_visual["profile_key"],
+            "variants": tops_visual["variants"],
+        },
+        {
+            "item_id": "bottoms",
+            "eyebrow": "Bottoms",
+            "title": "Bottom layers",
+            "body": bottoms_body,
+            "icon": "\U0001f456",
+            "visual_profile": bottoms_visual["profile_key"],
+            "variants": bottoms_visual["variants"],
+        },
+        {
+            "item_id": "outerwear",
+            "eyebrow": "Outerwear",
+            "title": outer_title,
+            "body": outer_body,
+            "icon": "\U0001f9e5",
+            "visual_profile": outerwear_visual["profile_key"],
+            "variants": outerwear_visual["variants"],
+        },
+        {
+            "item_id": "shoes",
+            "eyebrow": "Shoes",
+            "title": "Footwear",
+            "body": shoes_body,
+            "icon": "\U0001f45f",
+            "visual_profile": shoes_visual["profile_key"],
+            "variants": shoes_visual["variants"],
+        },
+        {
+            "item_id": "accessories",
+            "eyebrow": "Accessories",
+            "title": "Accessory guidance",
+            "body": f"Add {', '.join(accessory_notes)} to round out the outfit without overpacking.",
+            "icon": "\U0001f9e2",
+            "visual_profile": accessories_visual["profile_key"],
+            "variants": accessories_visual["variants"],
+        },
+        {
+            "item_id": "weather-add-ons",
+            "eyebrow": "Weather Add-Ons",
+            "title": "Extra gear",
+            "body": ", ".join(add_ons) + ".",
+            "icon": "\u2602\ufe0f",
+            "visual_profile": add_ons_visual["profile_key"],
+            "variants": add_ons_visual["variants"],
+        },
+    ]
+
+
+def build_weather_intelligence_payload(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    current = weather_to_show["current"]
+    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+
+    return {
+        "city": city_to_show or weather_to_show.get("resolved_city") or "Selected location",
+        "condition": current["condition"],
+        "hero_stats": [
+            {"label": "Current", "value": format_temperature_text(current["temperature"], temp_symbol, use_fahrenheit)},
+            {"label": "Feels Like", "value": format_temperature_text(current["feels_like"], temp_symbol, use_fahrenheit)},
+            {"label": "Rain Chance", "value": f"{today.get('rain_chance', 0)}%"},
+            {"label": "Wind", "value": format_wind_text(current["wind"], speed_symbol)},
+        ],
+        "scores": build_weather_score_cards(weather_to_show),
+        "alerts": build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
+        "insights": build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
+        "activities": build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
+        "clothing": build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
+    }
+
+
+def normalize_recent_searches(entries):
+    normalized = []
+    seen_labels = set()
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        label = str(entry.get("label") or "").strip()
+        if not label:
+            continue
+        label_key = label.lower()
+        if label_key in seen_labels:
+            continue
+        seen_labels.add(label_key)
+        normalized.append(
+            {
+                "label": label,
+                "query": str(entry.get("query") or label).strip(),
+                "latitude": entry.get("latitude"),
+                "longitude": entry.get("longitude"),
+                "meta": str(entry.get("meta") or "Recent search"),
+            }
+        )
+    return normalized[:8]
+
+
+def build_location_search_entry(label, query=None, latitude=None, longitude=None, meta="Suggested location"):
+    resolved_label = str(label or query or "").strip()
+    if not resolved_label:
+        return None
+
+    resolved_query = str(query or resolved_label).strip() or resolved_label
+    return {
+        "label": resolved_label,
+        "query": resolved_query,
+        "latitude": latitude,
+        "longitude": longitude,
+        "meta": str(meta or "Suggested location"),
+    }
+
+
+def build_weather_search_entry(weather, meta="Current city"):
+    if not weather:
+        return None
+
+    location = weather.get("location") or {}
+    return build_location_search_entry(
+        weather.get("resolved_city") or "Selected location",
+        query=weather.get("resolved_city") or "Selected location",
+        latitude=location.get("latitude"),
+        longitude=location.get("longitude"),
+        meta=meta,
+    )
+
+
+def get_search_component_recent_entries():
+    current_entry = build_weather_search_entry(
+        st.session_state.get("last_weather"),
+        meta="Recent search",
+    )
+    recent_entries = st.session_state.get("recent_searches", [])
+    if current_entry:
+        return normalize_recent_searches([current_entry, *recent_entries])
+    return normalize_recent_searches(recent_entries)
+
+
+def remember_recent_search(weather):
+    if not weather:
+        return
+
+    recent_entry = build_weather_search_entry(weather, meta="Recent search")
+    if not recent_entry:
+        return
+
+    existing = [item for item in st.session_state.get("recent_searches", []) if item.get("label", "").lower() != recent_entry["label"].lower()]
+    st.session_state["recent_searches"] = normalize_recent_searches([recent_entry, *existing])
+    save_user_preferences(
+        {
+            "recent_searches": st.session_state["recent_searches"],
+            "last_selected_city": weather.get("resolved_city"),
+        }
+    )
+
+
+def build_preferences_payload():
+    return {
+        "temp_unit": st.session_state.get("temp_unit", TEMP_OPTIONS[0]),
+        "speed_unit": st.session_state.get("speed_unit", SPEED_OPTIONS[0]),
+        "weather_map_layer": st.session_state.get("weather_map_layer", MAP_LAYER_OPTIONS[0]),
+        "last_selected_city": st.session_state.get("last_city_display") or st.session_state.get("search_query") or "Dubai",
+        "recent_searches": st.session_state.get("recent_searches", []),
+    }
+
+
+def sync_settings_draft_state():
+    st.session_state["settings_temp_unit_choice"] = st.session_state.get("temp_unit", TEMP_OPTIONS[0])
+    st.session_state["settings_speed_unit_choice"] = st.session_state.get("speed_unit", SPEED_OPTIONS[0])
+    st.session_state["settings_map_layer_choice"] = st.session_state.get("weather_map_layer", MAP_LAYER_OPTIONS[0])
+
+
+def sanitize_export_filename(value):
+    cleaned = "".join(char if char.isalnum() else "_" for char in str(value))
+    cleaned = "_".join(part for part in cleaned.split("_") if part)
+    return cleaned.lower() or "location"
+
+
+def get_export_picker_bounds():
+    today = date.today()
+    return (
+        today - timedelta(days=EXPORT_PAST_LOOKBACK_LIMIT_DAYS),
+        today + timedelta(days=EXPORT_FUTURE_LOOKAHEAD_LIMIT_DAYS),
+    )
+
+
+def get_default_export_custom_dates():
+    today = date.today()
+    end_date = min(today + timedelta(days=6), today + timedelta(days=EXPORT_FUTURE_LOOKAHEAD_LIMIT_DAYS))
+    return today, end_date
+
+
+def normalize_export_custom_dates(custom_dates):
+    default_start, default_end = get_default_export_custom_dates()
+    if isinstance(custom_dates, (tuple, list)):
+        if len(custom_dates) >= 2:
+            return custom_dates[0], custom_dates[1]
+        if len(custom_dates) == 1:
+            return custom_dates[0], custom_dates[0]
+    if hasattr(custom_dates, "year"):
+        return custom_dates, custom_dates
+    return default_start, default_end
+
+
+def resolve_export_window(range_key, custom_dates=None):
+    today = date.today()
+    preset_windows = {
+        "today": (0, 0),
+        "next_3_days": (0, 2),
+        "next_7_days": (0, 6),
+        "next_10_days": (0, 9),
+        "past_3_days": (-2, 0),
+        "past_7_days": (-6, 0),
+        "past_10_days": (-9, 0),
+    }
+    option_key, option_label = get_export_range_option(range_key)
+
+    if option_key != "custom_range":
+        start_offset, end_offset = preset_windows.get(option_key, (0, 0))
+        start_date = today + timedelta(days=start_offset)
+        end_date = today + timedelta(days=end_offset)
+        return {
+            "key": option_key,
+            "label": option_label,
+            "filename_tag": option_key,
+            "start_date": start_date,
+            "end_date": end_date,
+            "days_count": (end_date - start_date).days + 1,
+        }
+
+    start_date, end_date = normalize_export_custom_dates(custom_dates)
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    min_date, max_date = get_export_picker_bounds()
+    if start_date < min_date or end_date > max_date:
+        raise ValueError(
+            f"Choose dates between {min_date.strftime('%b %d')} and {max_date.strftime('%b %d')}."
+        )
+
+    selected_days = (end_date - start_date).days + 1
+    if selected_days > EXPORT_MAX_SELECTED_DAYS:
+        raise ValueError(f"Choose a date window of {EXPORT_MAX_SELECTED_DAYS} days or fewer.")
+
+    return {
+        "key": option_key,
+        "label": f"{start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')}",
+        "filename_tag": f"{start_date.isoformat()}_to_{end_date.isoformat()}",
+        "start_date": start_date,
+        "end_date": end_date,
+        "days_count": selected_days,
+    }
+
+
+def load_export_window_rows(weather_to_show, window_config):
+    location = weather_to_show.get("location") or {}
+    latitude = location.get("latitude")
+    longitude = location.get("longitude")
+    if latitude is None or longitude is None:
+        raise WeatherError("Location data is missing for this export.")
+
+    return get_daily_weather_range(
+        latitude,
+        longitude,
+        window_config["start_date"],
+        window_config["end_date"],
+        location.get("timezone") or "auto",
+    )
+
+
+def build_export_bundle(
+    weather_to_show,
+    city_to_show,
+    temp_symbol,
+    speed_symbol,
+    use_fahrenheit,
+    intelligence_payload,
+    range_key,
+    range_label,
+    export_rows,
+):
+    current = weather_to_show["current"]
+    city_name = city_to_show or weather_to_show.get("resolved_city") or "Selected location"
+    primary_insight = (intelligence_payload.get("insights") or [{}])[0]
+
+    return {
+        "city": city_name,
+        "range_key": range_key,
+        "range_label": range_label,
+        "days_count": len(export_rows),
+        "generated_at": datetime.now().strftime("%b %d, %Y %I:%M %p"),
+        "temperature_unit": temp_symbol.strip(),
+        "wind_unit": speed_symbol,
+        "current": {
+            "Condition": current["condition"],
+            "Temperature": format_temperature_text(current["temperature"], temp_symbol, use_fahrenheit),
+            "Feels Like": format_temperature_text(current["feels_like"], temp_symbol, use_fahrenheit),
+            "Humidity": f'{current["humidity"]}%',
+            "Wind": format_wind_text(current["wind"], speed_symbol),
+            "Pressure": f'{current["pressure"]} hPa',
+            "Visibility": f'{current["visibility"]} km',
+            "Precipitation": format_precipitation(current["precipitation"]),
+        },
+        "primary_insight": {
+            "title": primary_insight.get("title", "Today's weather summary"),
+            "body": primary_insight.get("body", "Current conditions are available for export."),
+        },
+        "alerts": intelligence_payload.get("alerts", []),
+        "scores": intelligence_payload.get("scores", []),
+        "forecast_rows": [
+            {
+                "Date": day["date"],
+                "Day": day["day"],
+                "Condition": day["condition"],
+                "Low": format_temperature_text(day["min"], temp_symbol, use_fahrenheit),
+                "High": format_temperature_text(day["max"], temp_symbol, use_fahrenheit),
+                "Rain Chance": f'{day["rain_chance"]}%',
+                "Rain Total": format_precipitation(day["rain_total"]),
+                "UV Index": str(day["uv_index"]),
+                "Sunrise": day["sunrise"],
+                "Sunset": day["sunset"],
+            }
+            for day in export_rows
+        ],
+    }
+
+
+def build_data_uri(file_bytes, mime_type):
+    encoded = base64.b64encode(file_bytes).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def format_file_size(byte_count):
+    if byte_count < 1024:
+        return f"{byte_count} B"
+    if byte_count < 1024 * 1024:
+        return f"{round(byte_count / 1024, 1)} KB"
+    return f"{round(byte_count / (1024 * 1024), 1)} MB"
+
+
+def build_export_panel_payload(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    intelligence_payload = build_weather_intelligence_payload(
+        weather_to_show,
+        city_to_show,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+    )
+    safe_city = sanitize_export_filename(city_to_show or weather_to_show.get("resolved_city") or "selected_location")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    range_items = []
+
+    for range_key, range_label in EXPORT_RANGE_OPTIONS:
+        window_config = resolve_export_window(range_key, get_default_export_custom_dates())
+        export_rows = load_export_window_rows(weather_to_show, window_config)
+        bundle = build_export_bundle(
+            weather_to_show,
+            city_to_show,
+            temp_symbol,
+            speed_symbol,
+            use_fahrenheit,
+            intelligence_payload,
+            range_key,
+            window_config["label"],
+            export_rows,
+        )
+        csv_bytes = build_csv_export(bundle)
+        excel_bytes = build_excel_export(bundle)
+        pdf_bytes = build_pdf_export(bundle)
+
+        file_prefix = f"skyline_forecast_{safe_city}_{window_config['filename_tag']}_{timestamp}"
+        range_items.append(
+            {
+                "key": range_key,
+                "label": window_config["label"],
+                "summary": f'Selected weather window with {bundle["days_count"]} daily row{"s" if bundle["days_count"] != 1 else ""}.',
+                "files": [
+                    {
+                        "label": "CSV",
+                        "description": "Structured report sections for spreadsheets and quick imports.",
+                        "filename": f"{file_prefix}.csv",
+                        "href": build_data_uri(csv_bytes, "text/csv"),
+                        "size": format_file_size(len(csv_bytes)),
+                    },
+                    {
+                        "label": "Excel",
+                        "description": "Styled workbook with Overview and Forecast sheets.",
+                        "filename": f"{file_prefix}.xlsx",
+                        "href": build_data_uri(
+                            excel_bytes,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        ),
+                        "size": format_file_size(len(excel_bytes)),
+                    },
+                    {
+                        "label": "PDF",
+                        "description": "Presentation-ready report with summary blocks and a forecast table.",
+                        "filename": f"{file_prefix}.pdf",
+                        "href": build_data_uri(pdf_bytes, "application/pdf"),
+                        "size": format_file_size(len(pdf_bytes)),
+                    },
+                ],
+            }
+        )
+
+    return {
+        "city": city_to_show or weather_to_show.get("resolved_city") or "Selected location",
+        "temperature_unit": temp_symbol.strip(),
+        "wind_unit": speed_symbol,
+        "ranges": range_items,
+    }
+
+
+def get_export_range_option(range_key):
+    for option_key, label in EXPORT_RANGE_OPTIONS:
+        if option_key == range_key:
+            return option_key, label
+    return EXPORT_RANGE_OPTIONS[0]
+
+
+def get_export_format_option(format_key):
+    for option_key, label in EXPORT_FORMAT_OPTIONS:
+        if option_key == format_key:
+            return option_key, label
+    return EXPORT_FORMAT_OPTIONS[0]
+
+
+def build_export_download_artifact(
+    weather_to_show,
+    city_to_show,
+    temp_symbol,
+    speed_symbol,
+    use_fahrenheit,
+    range_key,
+    format_key,
+    custom_dates=None,
+):
+    window_config = resolve_export_window(range_key, custom_dates)
+    format_key, format_label = get_export_format_option(format_key)
+    intelligence_payload = build_weather_intelligence_payload(
+        weather_to_show,
+        city_to_show,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+    )
+    export_rows = load_export_window_rows(weather_to_show, window_config)
+    bundle = build_export_bundle(
+        weather_to_show,
+        city_to_show,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+        intelligence_payload,
+        window_config["key"],
+        window_config["label"],
+        export_rows,
+    )
+    safe_city = sanitize_export_filename(city_to_show or weather_to_show.get("resolved_city") or "selected_location")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    filename_root = f"skyline_forecast_{safe_city}_{window_config['filename_tag']}_{timestamp}"
+
+    if format_key == "csv":
+        return {
+            "format_label": format_label,
+            "filename": f"{filename_root}.csv",
+            "mime": "text/csv",
+            "description": f'Daily weather rows for {window_config["label"].lower()}.',
+            "bytes": build_csv_export(bundle),
+            "bundle": bundle,
+        }
+    if format_key == "excel":
+        return {
+            "format_label": format_label,
+            "filename": f"{filename_root}.xlsx",
+            "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "description": f'Styled workbook for {window_config["label"].lower()}.',
+            "bytes": build_excel_export(bundle),
+            "bundle": bundle,
+        }
+    return {
+        "format_label": format_label,
+        "filename": f"{filename_root}.pdf",
+        "mime": "application/pdf",
+        "description": f'Presentation-ready export for {window_config["label"].lower()}.',
+        "bytes": build_pdf_export(bundle),
+        "bundle": bundle,
+    }
+
+
+def reset_searchbox_state(search_value=""):
+    if search_value:
+        st.session_state["city_input_value"] = search_value
+        st.session_state["search_query"] = search_value
+
+
+def get_search_display_value(search_value):
+    if isinstance(search_value, dict):
+        return (search_value.get("label") or search_value.get("query") or "").strip()
+
+    return str(search_value or "").strip()
+
+
+def _legacy_render_search_experience():
+    current_value = json.dumps(st.session_state.get("search_query", ""))
+    components.html(
+        f"""
+        <div class="search-shell" id="search-shell">
+          <div class="search-panel" id="search-panel">
+            <div class="search-control">
+              <div class="search-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <circle cx="11" cy="11" r="6.25"></circle>
+                  <path d="M16.2 16.2L20 20"></path>
+                </svg>
+              </div>
+              <input
+                id="city-search-input"
+                class="search-input"
+                type="text"
+                placeholder="Search any city worldwide"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button id="city-search-submit" class="search-submit" type="button" aria-label="Search city">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M5 12H19"></path>
+                  <path d="M13 6L19 12L13 18"></path>
+                </svg>
+              </button>
+            </div>
+            <div id="city-search-results" class="search-results" role="listbox" aria-label="City suggestions"></div>
+          </div>
+        </div>
+        <style>
+          body {{
+            margin: 0;
+            background: transparent;
+            font-family: "Segoe UI", sans-serif;
+            overflow: hidden;
+          }}
+          .search-shell {{
+            width: 100%;
+            position: relative;
+          }}
+          .search-panel {{
+            position: relative;
+            padding: 0.38rem;
+            border-radius: 34px;
+            overflow: hidden;
+            background:
+              linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.07)),
+              linear-gradient(135deg, rgba(162, 210, 232, 0.14), rgba(255,255,255,0.02));
+            border: 1px solid rgba(255,255,255,0.18);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.16);
+            backdrop-filter: blur(18px);
+            transition: border-radius 0.45s ease, border-color 0.3s ease;
+          }}
+          .search-panel.is-open {{
+            border-radius: 34px 34px 24px 24px;
+            border-color: rgba(255,255,255,0.22);
+          }}
+          .search-control {{
+            display: grid;
+            grid-template-columns: 3.55rem 1fr 3.55rem;
+            align-items: center;
+            min-height: 4.95rem;
+            border-radius: 30px;
+            background:
+              radial-gradient(circle at top left, rgba(255,255,255,0.1), transparent 40%),
+              linear-gradient(180deg, rgba(9, 20, 34, 0.76), rgba(10, 21, 33, 0.58));
+            border: 1px solid rgba(255,255,255,0.1);
+            overflow: hidden;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+          }}
+          .search-icon {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(232, 245, 255, 0.7);
+          }}
+          .search-icon svg,
+          .search-submit svg {{
+            width: 1.24rem;
+            height: 1.24rem;
+            stroke: currentColor;
+            stroke-width: 1.85;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+          }}
+          .search-input {{
+            width: 100%;
+            min-height: 4.95rem;
+            border: 0;
+            background: transparent;
+            color: #f5fbff;
+            font-size: 1.12rem;
+            font-weight: 600;
+            padding: 0;
+            outline: none;
+            box-sizing: border-box;
+          }}
+          .search-input::placeholder {{
+            color: rgba(226, 240, 251, 0.5);
+          }}
+          .search-input:focus {{
+            border-color: transparent;
+            box-shadow: none;
+          }}
+          .search-submit {{
+            width: 3rem;
+            height: 3rem;
+            justify-self: center;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.14);
+            background: linear-gradient(135deg, rgba(214,239,250,0.24), rgba(169,215,235,0.08));
+            color: #f5fbff;
+            cursor: pointer;
+            transition: transform 0.3s ease, background 0.3s ease, border-color 0.3s ease;
+          }}
+          .search-submit:hover {{
+            transform: translateX(1px) scale(1.03);
+            background: linear-gradient(135deg, rgba(228, 247, 255, 0.32), rgba(175, 219, 237, 0.14));
+            border-color: rgba(255,255,255,0.22);
+          }}
+          .search-results {{
+            display: none;
+          }}
+          @media (max-width: 760px) {{
+            .search-control {{
+              grid-template-columns: 3.15rem 1fr 3.15rem;
+              min-height: 4.55rem;
+            }}
+            .search-input {{
+              min-height: 4.55rem;
+              font-size: 1.02rem;
+            }}
+          }}
+        </style>
+        <script>
+          if (window.__skylineSearchCleanup) {{
+            window.__skylineSearchCleanup();
+          }}
+
+          const shell = document.getElementById("search-shell");
+          const panel = document.getElementById("search-panel");
+          const input = document.getElementById("city-search-input");
+          const submit = document.getElementById("city-search-submit");
+          const hostWindow = window.parent;
+          const hostDoc = hostWindow.document;
+          const frameElement = window.frameElement;
+          const geocodingUrl = "https://geocoding-api.open-meteo.com/v1/search";
+          const portalId = "skyline-search-portal";
+          const styleId = "skyline-search-portal-style";
+          let debounceHandle = null;
+          let activeQuery = "";
+          let activeIndex = -1;
+          let currentResults = [];
+
+          let portal = hostDoc.getElementById(portalId);
+          if (!portal) {{
+            portal = hostDoc.createElement("div");
+            portal.id = portalId;
+            hostDoc.body.appendChild(portal);
+          }}
+
+          if (!hostDoc.getElementById(styleId)) {{
+            const style = hostDoc.createElement("style");
+            style.id = styleId;
+            style.textContent = `
+              #skyline-search-portal {{
+                position: fixed;
+                z-index: 9998;
+                pointer-events: none;
+                opacity: 0;
+                transform: translateY(-0.7rem);
+                transition: opacity 0.26s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+              }}
+              #skyline-search-portal.is-open {{
+                opacity: 1;
+                transform: translateY(0);
+                pointer-events: auto;
+              }}
+              .skyline-search-dropdown {{
+                overflow: hidden;
+                border-radius: 0 0 28px 28px;
+                background:
+                  linear-gradient(180deg, rgba(7, 18, 31, 0.96), rgba(7, 18, 29, 0.92)),
+                  linear-gradient(135deg, rgba(255,255,255,0.08), transparent 55%);
+                border: 1px solid rgba(255,255,255,0.12);
+                box-shadow:
+                  0 28px 72px rgba(4, 14, 28, 0.34),
+                  inset 0 1px 0 rgba(255,255,255,0.08);
+                backdrop-filter: blur(24px);
+              }}
+              .skyline-search-scroll {{
+                max-height: min(25rem, calc(100vh - 10rem));
+                overflow-y: auto;
+                padding: 0.3rem;
+              }}
+              .skyline-search-scroll::-webkit-scrollbar {{
+                width: 8px;
+              }}
+              .skyline-search-scroll::-webkit-scrollbar-thumb {{
+                background: rgba(255,255,255,0.16);
+                border-radius: 999px;
+              }}
+              .skyline-search-scroll::-webkit-scrollbar-track {{
+                background: transparent;
+              }}
+              .skyline-search-option {{
+                width: 100%;
+                display: block;
+                border: 1px solid transparent;
+                background: transparent;
+                color: #f3f9ff;
+                padding: 0.94rem 1rem;
+                border-radius: 18px;
+                cursor: pointer;
+                text-align: left;
+                transition: background 0.22s ease, transform 0.22s ease, border-color 0.22s ease;
+              }}
+              .skyline-search-option + .skyline-search-option {{
+                margin-top: 0.08rem;
+              }}
+              .skyline-search-option:hover,
+              .skyline-search-option.is-active {{
+                background: rgba(255,255,255,0.08);
+                border-color: rgba(255,255,255,0.08);
+                transform: translateX(2px);
+              }}
+              .skyline-search-option-primary {{
+                font-size: 0.98rem;
+                font-weight: 600;
+                line-height: 1.24;
+              }}
+              .skyline-search-option-secondary {{
+                margin-top: 0.22rem;
+                font-size: 0.8rem;
+                letter-spacing: 0.02em;
+                color: rgba(224, 239, 248, 0.62);
+              }}
+              .skyline-search-empty {{
+                padding: 1rem 1.05rem;
+                color: rgba(224, 239, 248, 0.74);
+                font-size: 0.9rem;
+              }}
+            `;
+            hostDoc.head.appendChild(style);
+          }}
+
+          portal.innerHTML = '<div class="skyline-search-dropdown"><div class="skyline-search-scroll" id="skyline-search-scroll"></div></div>';
+          const scrollArea = portal.querySelector("#skyline-search-scroll");
+
+          input.value = {current_value};
+
+          const resizeFrame = () => {{
+            window.parent.postMessage({{ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height: 104 }}, "*");
+          }};
+
+          const escapeHtml = (value) => String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+
+          const redirectWithPayload = (params) => {{
+            const nextUrl = new URL(hostWindow.location.href);
+            nextUrl.search = "";
+            Object.entries(params).forEach(([key, value]) => nextUrl.searchParams.set(key, value));
+            const submitForm = hostDoc.createElement("form");
+            submitForm.method = "GET";
+            submitForm.action = `${{nextUrl.origin}}${{nextUrl.pathname}}`;
+            submitForm.target = "_top";
+            nextUrl.searchParams.forEach((value, key) => {{
+              const field = hostDoc.createElement("input");
+              field.type = "hidden";
+              field.name = key;
+              field.value = value;
+              submitForm.appendChild(field);
+            }});
+            hostDoc.body.appendChild(submitForm);
+            submitForm.submit();
+          }};
+
+          const assignPayload = (params) => {{
+            const nextUrl = new URL(hostWindow.location.href);
+            nextUrl.search = "";
+            Object.entries(params).forEach(([key, value]) => nextUrl.searchParams.set(key, value));
+            hostWindow.location.assign(nextUrl.toString());
+          }};
+
+          const updatePortalPosition = () => {{
+            const rect = frameElement.getBoundingClientRect();
+            portal.style.top = `${{rect.bottom - 14}}px`;
+            portal.style.left = `${{Math.max(rect.left + 6, 8)}}px`;
+            portal.style.width = `${{Math.max(rect.width - 12, 260)}}px`;
+          }};
+
+          const setOpen = (isOpen) => {{
+            const shouldOpen = isOpen && (currentResults.length > 0 || scrollArea.textContent.trim());
+            panel.classList.toggle("is-open", shouldOpen);
+            portal.classList.toggle("is-open", shouldOpen);
+            if (shouldOpen) {{
+              updatePortalPosition();
+            }}
+            resizeFrame();
+          }};
+
+          const hideResults = () => {{
+            currentResults = [];
+            activeIndex = -1;
+            scrollArea.innerHTML = "";
+            setOpen(false);
+          }};
+
+          const applyActiveState = () => {{
+            const options = Array.from(scrollArea.querySelectorAll(".skyline-search-option"));
+            options.forEach((option, index) => {{
+              option.classList.toggle("is-active", index === activeIndex);
+              option.setAttribute("aria-selected", index === activeIndex ? "true" : "false");
+              if (index === activeIndex) {{
+                option.scrollIntoView({{ block: "nearest" }});
+              }}
+            }});
+          }};
+
+          const renderResults = (items) => {{
+            if (!items.length) {{
+              currentResults = [];
+              activeIndex = -1;
+              scrollArea.innerHTML = '<div class="skyline-search-empty">No matches yet. Try another city or country.</div>';
+              setOpen(true);
+              return;
+            }}
+            currentResults = items;
+            activeIndex = 0;
+            scrollArea.innerHTML = items.map((item, index) => `
+              <button
+                class="skyline-search-option"
+                type="button"
+                role="option"
+                data-index="${{index}}"
+                aria-selected="${{index === 0 ? "true" : "false"}}"
+              >
+                <div class="skyline-search-option-primary">${{escapeHtml(item.label)}}</div>
+                <div class="skyline-search-option-secondary">${{escapeHtml(item.meta)}}</div>
+              </button>
+            `).join("");
+            applyActiveState();
+            setOpen(true);
+          }};
+
+          const normalizeResults = (items, query) => {{
+            const loweredQuery = query.trim().toLowerCase();
+            const seenLabels = new Set();
+            return items
+              .map((item) => {{
+                const parts = [];
+                [item.name, item.admin1, item.country].forEach((part) => {{
+                  if (part && !parts.includes(part)) {{
+                    parts.push(part);
+                  }}
+                }});
+                const label = parts.join(", ");
+                return {{
+                  label,
+                  meta: [item.admin1, item.country].filter(Boolean).join(" • ") || "Suggested location",
+                  latitude: item.latitude,
+                  longitude: item.longitude,
+                  population: item.population || 0,
+                  rank:
+                    ((item.name || "").toLowerCase() === loweredQuery ? 0 : 1) +
+                    ((item.name || "").toLowerCase().startsWith(loweredQuery) ? 0 : 2) +
+                    (label.toLowerCase().startsWith(loweredQuery) ? 0 : 3),
+                }};
+              }})
+              .filter((item) => item.label)
+              .sort((left, right) => {{
+                if (left.rank !== right.rank) {{
+                  return left.rank - right.rank;
+                }}
+                if (left.population !== right.population) {{
+                  return right.population - left.population;
+                }}
+                return left.label.localeCompare(right.label);
+              }})
+              .filter((item) => {{
+                if (seenLabels.has(item.label)) {{
+                  return false;
+                }}
+                seenLabels.add(item.label);
+                return true;
+              }})
+              .slice(0, 8);
+          }};
+
+          const submitTypedSearch = () => {{
+            const query = input.value.trim();
+            if (!query) {{
+              return;
+            }}
+            hideResults();
+            redirectWithPayload({{ search_query: query }});
+          }};
+
+          const selectItem = (index) => {{
+            const item = currentResults[index];
+            if (!item) {{
+              submitTypedSearch();
+              return;
+            }}
+            input.value = item.label;
+            hideResults();
+            redirectWithPayload({{
+              search_label: item.label,
+              search_lat: item.latitude,
+              search_lon: item.longitude,
+            }});
+          }};
+
+          const searchCities = async (query) => {{
+            activeQuery = query;
+            if (query.trim().length < 2) {{
+              hideResults();
+              return;
+            }}
+            try {{
+              const url = `${{geocodingUrl}}?name=${{encodeURIComponent(query)}}&count=12&language=en&format=json`;
+              const response = await fetch(url);
+              const data = await response.json();
+              if (activeQuery !== query) {{
+                return;
+              }}
+              renderResults(normalizeResults(data.results || [], query));
+            }} catch (error) {{
+              hideResults();
+            }}
+          }};
+
+          input.addEventListener("input", (event) => {{
+            clearTimeout(debounceHandle);
+            debounceHandle = setTimeout(() => searchCities(event.target.value), 180);
+          }});
+
+          input.addEventListener("focus", () => {{
+            if (input.value.trim().length >= 2) {{
+              searchCities(input.value);
+            }}
+            updatePortalPosition();
+            resizeFrame();
+          }});
+
+          submit.addEventListener("click", () => {{
+            if (currentResults.length && activeIndex >= 0 && panel.classList.contains("is-open")) {{
+              selectItem(activeIndex);
+            }} else {{
+              submitTypedSearch();
+            }}
+          }});
+
+          input.addEventListener("keydown", (event) => {{
+            if (event.key === "ArrowDown" && currentResults.length) {{
+              event.preventDefault();
+              activeIndex = Math.min(activeIndex + 1, currentResults.length - 1);
+              applyActiveState();
+              return;
+            }}
+            if (event.key === "ArrowUp" && currentResults.length) {{
+              event.preventDefault();
+              activeIndex = Math.max(activeIndex - 1, 0);
+              applyActiveState();
+              return;
+            }}
+            if (event.key === "Enter") {{
+              event.preventDefault();
+              if (currentResults.length && panel.classList.contains("is-open") && activeIndex >= 0) {{
+                selectItem(activeIndex);
+              }} else {{
+                submitTypedSearch();
+              }}
+            }}
+            if (event.key === "Escape") {{
+              hideResults();
+            }}
+          }});
+
+          scrollArea.addEventListener("click", (event) => {{
+            const option = event.target.closest(".skyline-search-option");
+            if (!option) {{
+              return;
+            }}
+            selectItem(Number(option.dataset.index));
+          }});
+
+          scrollArea.addEventListener("mousemove", (event) => {{
+            const option = event.target.closest(".skyline-search-option");
+            if (!option) {{
+              return;
+            }}
+            activeIndex = Number(option.dataset.index);
+            applyActiveState();
+          }});
+
+          const handleHostPointerDown = (event) => {{
+            if (portal.contains(event.target)) {{
+              return;
+            }}
+            hideResults();
+          }};
+
+          const handleWindowChange = () => {{
+            if (portal.classList.contains("is-open")) {{
+              updatePortalPosition();
+            }}
+          }};
+
+          hostDoc.addEventListener("pointerdown", handleHostPointerDown, true);
+          hostWindow.addEventListener("resize", handleWindowChange);
+          hostWindow.addEventListener("scroll", handleWindowChange, true);
+
+          const storage = (() => {{
+            try {{
+              return hostWindow.localStorage;
+            }} catch (error) {{
+              return window.localStorage;
+            }}
+          }})();
+
+          const currentUrl = new URL(hostWindow.location.href);
+          const hasPendingExternalSearch =
+            currentUrl.searchParams.has("search_lat") ||
+            currentUrl.searchParams.has("search_lon") ||
+            currentUrl.searchParams.has("search_query") ||
+            currentUrl.searchParams.has("geo_lat") ||
+            currentUrl.searchParams.has("geo_lon");
+
+          if (!storage.getItem("skyline-location-prompted-v2") && !hasPendingExternalSearch && "geolocation" in navigator) {{
+            storage.setItem("skyline-location-prompted-v2", "1");
+            navigator.geolocation.getCurrentPosition(
+              (position) => {{
+                assignPayload({{
+                  geo_lat: position.coords.latitude.toFixed(4),
+                  geo_lon: position.coords.longitude.toFixed(4),
+                }});
+              }},
+              () => {{}},
+              {{ enableHighAccuracy: true, timeout: 10000, maximumAge: 600000 }}
+            );
+          }}
+
+          window.__skylineSearchCleanup = () => {{
+            hostDoc.removeEventListener("pointerdown", handleHostPointerDown, true);
+            hostWindow.removeEventListener("resize", handleWindowChange);
+            hostWindow.removeEventListener("scroll", handleWindowChange, true);
+            if (portal && portal.parentNode) {{
+              portal.parentNode.removeChild(portal);
+            }}
+          }};
+
+          resizeFrame();
+        </script>
+        """,
+        height=104,
+    )
+
+
+def process_location_request():
+    search_lat = st.query_params.get("search_lat")
+    search_lon = st.query_params.get("search_lon")
+    geo_lat = st.query_params.get("geo_lat")
+    geo_lon = st.query_params.get("geo_lon")
+    search_query = st.query_params.get("search_query")
+
+    if search_lat and search_lon:
+        latitude = search_lat
+        longitude = search_lon
+        query_label = st.query_params.get("search_label") or "Selected Location"
+    elif geo_lat and geo_lon:
+        latitude = geo_lat
+        longitude = geo_lon
+        query_label = "Your Location"
+    elif search_query:
+        try:
+            weather = get_weather(search_query)
+        except WeatherError as exc:
+            st.query_params.clear()
+            st.error(str(exc))
+            return
+
+        resolved_key = weather["resolved_city"].strip().upper()
+        st.session_state["last_weather"] = weather
+        st.session_state["last_city_display"] = weather["resolved_city"]
+        st.session_state["last_city_key"] = resolved_key
+        st.session_state["city_input_value"] = weather["resolved_city"]
+        st.session_state["search_query"] = weather["resolved_city"]
+        save_last_weather_state(weather, resolved_key)
+        remember_recent_search(weather)
+        st.query_params.clear()
+        return
+    else:
+        return
+
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+    except ValueError:
+        st.query_params.clear()
+        return
+
+    try:
+        weather = get_weather(
+            {
+                "label": query_label,
+                "query": query_label,
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        )
+    except WeatherError as exc:
+        st.query_params.clear()
+        st.error(str(exc))
+        return
+
+    resolved_key = weather["resolved_city"].strip().upper()
+    st.session_state["last_weather"] = weather
+    st.session_state["last_city_display"] = weather["resolved_city"]
+    st.session_state["last_city_key"] = resolved_key
+    st.session_state["city_input_value"] = weather["resolved_city"]
+    st.session_state["search_query"] = weather["resolved_city"]
+    save_last_weather_state(weather, resolved_key)
+    remember_recent_search(weather)
+    st.query_params.clear()
+
+
+def process_forecast_dialog_request():
+    forecast_index = st.query_params.get("forecast_index")
+    if forecast_index is None:
+        return
+
+    try:
+        st.session_state["pending_forecast_dialog_index"] = int(forecast_index)
+    except ValueError:
+        st.session_state.pop("pending_forecast_dialog_index", None)
+
+    st.query_params.clear()
+
+
+# Session setup keeps the app stable across reruns.
+def initialize_session_state():
+    defaults = {
+        "saved_cities": ["DUBAI", "LONDON"],
+        "city_input_value": "Dubai",
+        "search_query": "Dubai",
+        "temp_unit": TEMP_OPTIONS[0],
+        "speed_unit": SPEED_OPTIONS[0],
+        "settings_selected_city": "DUBAI",
+        "recent_searches": [],
+        "export_range": EXPORT_RANGE_OPTIONS[0][0],
+        "export_format": EXPORT_FORMAT_OPTIONS[0][0],
+        "export_custom_dates": get_default_export_custom_dates(),
+        "show_export_dialog": False,
+        "show_settings_dialog": False,
+        "weather_map_layer": "Clouds",
+        "compare_primary_city_query": "",
+        "compare_primary_city_seed": "",
+        "compare_primary_city_selection": None,
+        "compare_secondary_city_query": "",
+        "compare_secondary_city_selection": None,
+        "compare_primary_weather": None,
+        "compare_secondary_weather": None,
+        "compare_primary_search_event_id": "",
+        "compare_secondary_search_event_id": "",
+        "preferences_loaded": False,
+        "active_content_section": CONTENT_SECTIONS[0],
+    }
+
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+    if not st.session_state.get("preferences_loaded"):
+        saved_preferences = load_user_preferences()
+        st.session_state["temp_unit"] = saved_preferences.get("temp_unit", st.session_state["temp_unit"])
+        st.session_state["speed_unit"] = saved_preferences.get("speed_unit", st.session_state["speed_unit"])
+        st.session_state["weather_map_layer"] = saved_preferences.get("weather_map_layer", st.session_state["weather_map_layer"])
+        st.session_state["recent_searches"] = normalize_recent_searches(saved_preferences.get("recent_searches", []))
+        last_selected_city = saved_preferences.get("last_selected_city")
+        if last_selected_city:
+            st.session_state["city_input_value"] = last_selected_city
+            st.session_state["search_query"] = last_selected_city
+        st.session_state["preferences_loaded"] = True
+
+    saved_state = load_last_weather_state()
+    if "last_weather" not in st.session_state and saved_state:
+        st.session_state["last_weather"] = saved_state.get("last_weather")
+        st.session_state["last_city_display"] = saved_state.get("last_city_display")
+        st.session_state["last_city_key"] = saved_state.get("last_city_key")
+
+        if saved_state.get("last_city_display"):
+            st.session_state["city_input_value"] = saved_state["last_city_display"]
+            st.session_state["search_query"] = saved_state["last_city_display"]
+
+
+# First-load weather avoids showing an empty placeholder header.
+def bootstrap_default_weather():
+    if st.session_state.get("last_weather"):
+        return
+
+    default_city = st.session_state["city_input_value"].strip() or "Dubai"
+
+    try:
+        weather = get_weather(default_city)
+    except WeatherError:
+        return
+
+    city_key = weather["resolved_city"].strip().upper()
+    st.session_state["last_weather"] = weather
+    st.session_state["last_city_display"] = weather["resolved_city"]
+    st.session_state["last_city_key"] = city_key
+    st.session_state["city_input_value"] = weather["resolved_city"]
+    reset_searchbox_state(weather["resolved_city"])
+    save_last_weather_state(weather, city_key)
+    remember_recent_search(weather)
+
+
+# Current weather state drives the background and header content.
+def get_active_weather_state():
+    weather = st.session_state.get("last_weather")
+    city_name = st.session_state.get("last_city_display")
+    return weather, city_name
+
+
+def inject_dialog_surface(anchor_class, dialog_width):
+    st.markdown(
+        dedent(
+            f"""
+            <style>
+            div[data-testid="stDialog"]:has(.{anchor_class}) {{
+                background: rgba(6, 16, 28, 0.18);
+                backdrop-filter: blur(4px);
+                animation: skylineDialogBackdropIn 0.22s ease both;
+                transition: opacity 0.2s ease, backdrop-filter 0.2s ease;
+            }}
+            div[data-testid="stDialog"]:has(.{anchor_class}).skyline-dialog-closing {{
+                opacity: 0;
+                backdrop-filter: blur(0px);
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) {{
+                width: {dialog_width};
+                max-width: {dialog_width};
+                border-radius: 30px;
+                background: linear-gradient(180deg, rgba(120, 154, 187, 0.18), rgba(17, 43, 72, 0.28));
+                border: 1px solid rgba(255,255,255,0.16);
+                box-shadow: 0 24px 58px rgba(4, 15, 32, 0.26);
+                backdrop-filter: blur(24px);
+                transform-origin: top center;
+                animation: skylineDialogPanelIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+                transition: opacity 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}).skyline-dialog-closing {{
+                opacity: 0;
+                transform: translateY(18px) scale(0.975);
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) > div[data-testid="stVerticalBlock"] {{
+                gap: 1rem;
+                padding-bottom: 0.8rem;
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) button[aria-label="Close"] {{
+                border-radius: 999px;
+                width: 2.15rem;
+                height: 2.15rem;
+                min-width: 2.15rem;
+                padding: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid rgba(255,255,255,0.14);
+                background: rgba(255,255,255,0.06);
+                color: rgba(242,248,255,0.82);
+                top: 0.75rem;
+                right: 0.95rem;
+                line-height: 1;
+                box-shadow: 0 8px 20px rgba(4, 15, 32, 0.14);
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) button[aria-label="Close"]:hover {{
+                background: rgba(255,255,255,0.1);
+                color: #f8fbff;
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) .stButton button[kind="primary"],
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) .stDownloadButton button {{
+                min-height: 3.05rem;
+                border-radius: 16px;
+                border: 1px solid rgba(255,255,255,0.14);
+                background: linear-gradient(180deg, rgba(214, 239, 250, 0.24), rgba(169, 215, 235, 0.12));
+                color: #f4fbff;
+                box-shadow: 0 14px 30px rgba(4, 15, 32, 0.18);
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) .stButton button[kind="primary"]:hover,
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) .stDownloadButton button:hover {{
+                border-color: rgba(255,255,255,0.2);
+                background: linear-gradient(180deg, rgba(224, 246, 255, 0.3), rgba(180, 222, 240, 0.16));
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) .stButton button[kind="secondary"] {{
+                border: 1px solid rgba(255,255,255,0.14);
+                background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.08));
+                color: #eef8ff;
+                box-shadow: 0 10px 24px rgba(4, 15, 32, 0.14);
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) .stButton button[kind="secondary"]:hover {{
+                border-color: rgba(255,255,255,0.18);
+                background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.1));
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) div[data-baseweb="select"] > div {{
+                background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.05));
+                border: 1px solid rgba(255,255,255,0.12);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) div[data-baseweb="select"] span,
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) div[data-baseweb="select"] input,
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) div[data-baseweb="select"] svg {{
+                color: #eef8ff;
+            }}
+            div[data-testid="stDialog"] div[role="dialog"]:has(.{anchor_class}) hr {{
+                border-color: rgba(255,255,255,0.12);
+            }}
+            @keyframes skylineDialogBackdropIn {{
+                from {{
+                    opacity: 0;
+                }}
+                to {{
+                    opacity: 1;
+                }}
+            }}
+            @keyframes skylineDialogPanelIn {{
+                from {{
+                    opacity: 0;
+                    transform: translateY(18px) scale(0.975);
+                }}
+                to {{
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }}
+            }}
+            </style>
+            <div class="{anchor_class}" aria-hidden="true"></div>
+            """
+        ).strip(),
+        unsafe_allow_html=True,
+    )
+    components.html(
+        f"""
+        <script>
+          const hostWindow = window.parent;
+          const hostDoc = hostWindow.document;
+          const anchorClass = {json.dumps(anchor_class)};
+          const cleanupKey = "__skylineDialogCleanup_" + anchorClass.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+          if (hostWindow[cleanupKey]) {{
+            hostWindow[cleanupKey]();
+          }}
+
+          const dialogRoot = Array.from(hostDoc.querySelectorAll('div[data-testid="stDialog"]'))
+            .find((node) => node.querySelector("." + anchorClass));
+          const dialogCard = dialogRoot?.querySelector('div[role="dialog"]');
+          const closeButton = dialogCard?.querySelector('button[aria-label="Close"]');
+
+          if (!dialogRoot || !dialogCard || !closeButton) {{
+            hostWindow[cleanupKey] = null;
+            return;
+          }}
+
+          const closeDelay = 190;
+          let closeTimer = null;
+
+          dialogRoot.classList.remove("skyline-dialog-closing");
+          dialogCard.classList.remove("skyline-dialog-closing");
+          dialogRoot.dataset.skylineClosing = "false";
+
+          const finishClose = () => {{
+            closeButton.dataset.skylineBypassClose = "true";
+            closeButton.click();
+          }};
+
+          const startClose = () => {{
+            if (dialogRoot.dataset.skylineClosing === "true") {{
+              return;
+            }}
+            dialogRoot.dataset.skylineClosing = "true";
+            dialogRoot.classList.add("skyline-dialog-closing");
+            dialogCard.classList.add("skyline-dialog-closing");
+            closeTimer = hostWindow.setTimeout(finishClose, closeDelay);
+          }};
+
+          const handleCloseClick = (event) => {{
+            if (closeButton.dataset.skylineBypassClose === "true") {{
+              closeButton.dataset.skylineBypassClose = "false";
+              return;
+            }}
+            event.preventDefault();
+            event.stopPropagation();
+            startClose();
+          }};
+
+          const handleOverlayPointerDown = (event) => {{
+            if (!dialogRoot.contains(event.target)) {{
+              return;
+            }}
+            if (event.target.closest('div[role="dialog"]')) {{
+              return;
+            }}
+            event.preventDefault();
+            event.stopPropagation();
+            startClose();
+          }};
+
+          const handleEscape = (event) => {{
+            if (event.key !== "Escape") {{
+              return;
+            }}
+            event.preventDefault();
+            event.stopPropagation();
+            startClose();
+          }};
+
+          closeButton.addEventListener("click", handleCloseClick, true);
+          hostDoc.addEventListener("pointerdown", handleOverlayPointerDown, true);
+          hostWindow.addEventListener("keydown", handleEscape, true);
+
+          hostWindow[cleanupKey] = () => {{
+            if (closeTimer) {{
+              hostWindow.clearTimeout(closeTimer);
+              closeTimer = null;
+            }}
+            closeButton.removeEventListener("click", handleCloseClick, true);
+            hostDoc.removeEventListener("pointerdown", handleOverlayPointerDown, true);
+            hostWindow.removeEventListener("keydown", handleEscape, true);
+          }};
+        </script>
+        """,
+        height=0,
+    )
+
+
+# Settings content is shared between dialog-capable and fallback modes.
+def render_settings_panel():
+    inject_dialog_surface("skyline-settings-dialog-anchor", "min(84vw, 760px)")
+    st.markdown("**Preferences**")
+    st.radio("Temperature Unit", TEMP_OPTIONS, key="settings_temp_unit_choice")
+    st.radio("Wind Speed", SPEED_OPTIONS, key="settings_speed_unit_choice")
+    st.selectbox("Preferred Map Layer", MAP_LAYER_OPTIONS, key="settings_map_layer_choice")
+
+    st.divider()
+    st.markdown("**Saved Behavior**")
+    current_city = st.session_state.get("last_city_display") or st.session_state.get("search_query") or "Dubai"
+    st.caption(f"Last selected city to save: {current_city}")
+    recent_labels = [item.get("label", "") for item in st.session_state.get("recent_searches", [])[:4]]
+    if recent_labels:
+        st.caption("Recent searches are saved automatically and prioritized in the main search suggestions.")
+        st.caption("Recent: " + " | ".join(recent_labels))
+
+    if st.button("Save Preferences", key="save_preferences_button", type="primary", use_container_width=True):
+        st.session_state["temp_unit"] = st.session_state["settings_temp_unit_choice"]
+        st.session_state["speed_unit"] = st.session_state["settings_speed_unit_choice"]
+        st.session_state["weather_map_layer"] = st.session_state["settings_map_layer_choice"]
+        save_user_preferences(build_preferences_payload())
+        st.success("Preferences saved.")
+        st.rerun()
+
+
+# Settings open from the gear button and use a dialog when available.
+def open_settings():
+    sync_settings_draft_state()
+    if hasattr(st, "dialog"):
+        @st.dialog("Settings")
+        def settings_dialog():
+            render_settings_panel()
+
+        settings_dialog()
+    else:
+        with st.popover("Settings", use_container_width=True):
+            render_settings_panel()
+
+
+def render_export_dialog_panel(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    inject_dialog_surface("skyline-export-dialog-anchor", "min(84vw, 960px)")
+    st.markdown(
+        dedent(
+            """
+            <style>
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-export-dialog-anchor) {
+                background: linear-gradient(180deg, rgba(120, 154, 187, 0.18), rgba(17, 43, 72, 0.28));
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-export-dialog-anchor) > div[data-testid="stVerticalBlock"] {
+                gap: 1.1rem;
+                padding-bottom: 1.6rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-export-dialog-anchor) .intel-card,
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-export-dialog-anchor) .intel-mini-note {
+                border-radius: 22px;
+                background: rgba(255,255,255,0.065);
+                border: 1px solid rgba(255,255,255,0.08);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-export-dialog-anchor) .skyline-export-intro-card {
+                margin-top: -0.4rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-export-dialog-anchor) .skyline-export-preview-card {
+                padding-bottom: 1.9rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-export-dialog-anchor) .skyline-export-preview-card .intel-support-grid {
+                margin-bottom: 0.3rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-export-dialog-anchor) .stDownloadButton {
+                margin-top: 1.05rem;
+                margin-bottom: 0.9rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-export-dialog-anchor) p {
+                line-height: 1.55;
+            }
+            </style>
+            """
+        ).strip(),
+        unsafe_allow_html=True,
+    )
+    current_city = city_to_show or weather_to_show.get("resolved_city") or "Selected location"
+    range_labels = {key: label for key, label in EXPORT_RANGE_OPTIONS}
+    format_labels = {key: label for key, label in EXPORT_FORMAT_OPTIONS}
+
+    st.markdown(
+        dedent(
+                f"""
+            <div class="intel-card skyline-export-intro-card" style="margin-top: -0.9rem; margin-bottom: 0.3rem;">
+                <div class="intel-card-kicker">Export Weather Data</div>
+                <div class="intel-card-title">Create a clean weather file for {escape(current_city)}</div>
+                <div class="intel-card-body">Choose a quick date window or define your own range, then export the selected period in CSV, Excel, or PDF. The export always uses the currently selected location from the home page.</div>
+            </div>
+            """
+        ).strip(),
+        unsafe_allow_html=True,
+    )
+
+    range_options = [key for key, _ in EXPORT_RANGE_OPTIONS]
+    format_options = [key for key, _ in EXPORT_FORMAT_OPTIONS]
+    range_index = next(
+        (index for index, key in enumerate(range_options) if key == st.session_state.get("export_range")),
+        0,
+    )
+    format_index = next(
+        (index for index, key in enumerate(format_options) if key == st.session_state.get("export_format")),
+        0,
+    )
+
+    controls = st.columns(2)
+    custom_dates = st.session_state.get("export_custom_dates", get_default_export_custom_dates())
+    with controls[0]:
+        selected_range = st.selectbox(
+            "Date Window",
+            options=range_options,
+            index=range_index,
+            format_func=lambda key: range_labels[key],
+            key="export_range_selector",
+        )
+        if selected_range == "custom_range":
+            min_date, max_date = get_export_picker_bounds()
+            custom_dates = st.date_input(
+                "Custom Date Range",
+                value=custom_dates,
+                min_value=min_date,
+                max_value=max_date,
+                key="export_custom_dates",
+            )
+            st.caption(
+                f"Choose up to {EXPORT_MAX_SELECTED_DAYS} days between {min_date.strftime('%b %d, %Y')} and {max_date.strftime('%b %d, %Y')}."
+            )
+        else:
+            st.caption(
+                f"Quick windows include recent history and upcoming days. Custom ranges can span up to {EXPORT_MAX_SELECTED_DAYS} days."
+            )
+    with controls[1]:
+        selected_format = st.radio(
+            "File Format",
+            options=format_options,
+            index=format_index,
+            format_func=lambda key: format_labels[key],
+            key="export_format_selector",
+            horizontal=True,
+        )
+
+    st.session_state["export_range"] = selected_range
+    st.session_state["export_format"] = selected_format
+
+    try:
+        artifact = build_export_download_artifact(
+            weather_to_show,
+            city_to_show,
+            temp_symbol,
+            speed_symbol,
+            use_fahrenheit,
+            selected_range,
+            selected_format,
+            custom_dates=custom_dates,
+        )
+    except (ValueError, ForecastDataError, WeatherError) as exc:
+        st.warning(str(exc))
+        return
+
+    bundle = artifact["bundle"]
+
+    preview_columns = st.columns([1.5, 0.9])
+    with preview_columns[0]:
+        st.markdown(
+            dedent(
+                f"""
+                <div class="intel-card skyline-export-preview-card" style="margin-bottom: 0; padding-bottom: 2.15rem;">
+                    <div class="intel-card-kicker">Export Preview</div>
+                    <div class="intel-card-title">{escape(bundle["range_label"])} in {escape(artifact["format_label"])}</div>
+                    <div class="intel-card-body">{escape(artifact["description"])}</div>
+                    <div class="intel-support-grid" style="margin-bottom: 0.35rem;">
+                        <div class="intel-mini-note">
+                            <div class="intel-mini-note-label">Current Location</div>
+                            <div class="intel-mini-note-title">{escape(current_city)}</div>
+                            <div class="intel-mini-note-body">{escape(bundle["current"]["Condition"])} | {escape(bundle["current"]["Temperature"])} | {escape(bundle["current"]["Wind"])}</div>
+                        </div>
+                        <div class="intel-mini-note">
+                            <div class="intel-mini-note-label">Included Window</div>
+                            <div class="intel-mini-note-title">{escape(bundle["range_label"])}</div>
+                            <div class="intel-mini-note-body">Includes {bundle["days_count"]} daily row{"s" if bundle["days_count"] != 1 else ""} across the selected weather window.</div>
+                        </div>
+                    </div>
+                </div>
+                """
+            ).strip(),
+            unsafe_allow_html=True,
+        )
+    with preview_columns[1]:
+        st.markdown(
+            dedent(
+                f"""
+                <div class="intel-card" style="margin-bottom: 0;">
+                    <div class="intel-card-kicker">Download Ready</div>
+                    <div class="intel-card-title">{escape(artifact["filename"])}</div>
+                    <div class="intel-card-body">Generated size: {format_file_size(len(artifact["bytes"]))}</div>
+                </div>
+                """
+            ).strip(),
+            unsafe_allow_html=True,
+        )
+        st.download_button(
+            label=f'Download {artifact["format_label"]}',
+            data=artifact["bytes"],
+            file_name=artifact["filename"],
+            mime=artifact["mime"],
+            key=f'export_download_{selected_range}_{selected_format}_{bundle["range_key"]}_{bundle["days_count"]}',
+            use_container_width=True,
+            type="primary",
+        )
+    st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+
+
+def open_export_dialog(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    if hasattr(st, "dialog"):
+        @st.dialog("Export Weather Data")
+        def export_dialog():
+            render_export_dialog_panel(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit)
+
+        export_dialog()
+    else:
+        with st.popover("Export", use_container_width=True):
+            render_export_dialog_panel(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit)
+
+
+# Search handles validation, API errors, and persistence.
+def run_weather_search(search_value, rerun_after=True, show_feedback=True):
+    search_display_value = get_search_display_value(search_value)
+    city_key = search_display_value.upper()
+
+    if city_key == "":
+        st.warning("Please enter a city name.")
+        return
+
+    try:
+        weather = get_weather(search_value)
+    except CityNotFoundError:
+        st.error("City not found. Please check the spelling and try again.")
+        return
+    except ForecastDataError as exc:
+        st.error(str(exc))
+        return
+    except WeatherError as exc:
+        st.error(str(exc))
+        return
+
+    st.session_state["last_weather"] = weather
+    st.session_state["last_city_display"] = weather["resolved_city"]
+    st.session_state["last_city_key"] = weather["resolved_city"].strip().upper()
+    st.session_state["city_input_value"] = weather["resolved_city"]
+    reset_searchbox_state(weather["resolved_city"])
+
+    save_last_weather_state(weather, weather["resolved_city"].strip().upper())
+    remember_recent_search(weather)
+    if show_feedback:
+        st.success(f"Weather loaded for {weather['resolved_city']}.")
+    if rerun_after:
+        st.rerun()
+
+
+def handle_search_component_event(search_event):
+    if not isinstance(search_event, dict):
+        return False
+
+    event_id = str(search_event.get("event_id") or "").strip()
+    if not event_id:
+        return False
+
+    if st.session_state.get("last_search_component_event_id") == event_id:
+        return False
+
+    st.session_state["last_search_component_event_id"] = event_id
+    action = search_event.get("action")
+    payload = search_event.get("payload") or {}
+
+    if action not in {"search", "geolocation"}:
+        return False
+
+    latitude = payload.get("latitude")
+    longitude = payload.get("longitude")
+
+    if latitude is not None and longitude is not None:
+        search_value = {
+            "label": payload.get("label") or payload.get("query") or "Selected Location",
+            "query": payload.get("query") or payload.get("label") or "Selected Location",
+            "latitude": latitude,
+            "longitude": longitude,
+        }
+    else:
+        search_value = payload.get("query") or payload.get("label") or ""
+
+    run_weather_search(search_value, rerun_after=True, show_feedback=False)
+    return True
+
+
+def handle_compare_search_component_event(search_event, query_state_key, selection_state_key, event_state_key):
+    if not isinstance(search_event, dict):
+        return False
+
+    event_id = str(search_event.get("event_id") or "").strip()
+    if not event_id:
+        return False
+
+    if st.session_state.get(event_state_key) == event_id:
+        return False
+
+    st.session_state[event_state_key] = event_id
+    action = search_event.get("action")
+    payload = search_event.get("payload") or {}
+
+    if action not in {"search", "draft"}:
+        return False
+
+    next_query = get_search_display_value(payload)
+    if not next_query:
+        return False
+
+    st.session_state[query_state_key] = next_query
+    selection = build_location_search_entry(
+        payload.get("label") or next_query,
+        query=payload.get("query") or next_query,
+        latitude=payload.get("latitude"),
+        longitude=payload.get("longitude"),
+        meta=payload.get("meta") or "Suggested location",
+    )
+    if selection and selection.get("latitude") is not None and selection.get("longitude") is not None:
+        st.session_state[selection_state_key] = selection
+    else:
+        st.session_state[selection_state_key] = None
+    return True
+
+
+def render_search_experience():
+    return SEARCH_COMPONENT(
+        initial_value=st.session_state.get("search_query", ""),
+        recent_searches=get_search_component_recent_entries(),
+        placeholder="Search any city worldwide",
+        enable_geolocation=True,
+        key="skyline_search_component_recent_v2",
+        default=None,
+    )
+
+
+def render_search_section():
+    return render_search_experience()
+
+
+# Header section replaces the plain title with a stronger top bar.
+def render_header_section(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    export_disabled = weather_to_show is None
+    summary_columns = st.columns([1, 3.4, 1])
+    with summary_columns[1]:
+        render_topbar(weather_to_show, city_to_show, temp_symbol, use_fahrenheit)
+
+    action_row = st.columns([0.7, 0.7, 0.9, 0.8, 0.56, 0.72, 1.85, 1.18, 0.56])
+
+    for column, section_name in zip(action_row[: len(CONTENT_SECTIONS)], CONTENT_SECTIONS):
+        section_key = section_name.lower().replace(" ", "_")
+        with column:
+            if st.button(section_name, key=f"content_section_{section_key}", type="secondary", use_container_width=True, disabled=export_disabled):
+                st.session_state["active_content_section"] = section_name
+
+    with action_row[7]:
+        if st.button("Export", key="export_button", type="secondary", use_container_width=True, disabled=export_disabled):
+            st.session_state["show_export_dialog"] = True
+
+    with action_row[8]:
+        if st.button("\u2699", key="gear_button", help="Settings", type="secondary", use_container_width=True):
+            st.session_state["show_settings_dialog"] = True
+
+    if st.session_state.get("show_export_dialog") and weather_to_show:
+        st.session_state["show_export_dialog"] = False
+        open_export_dialog(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit)
+
+    if st.session_state.get("show_settings_dialog"):
+        st.session_state["show_settings_dialog"] = False
+        open_settings()
+
+
+# Current conditions keeps the common data always visible.
+def render_current_conditions_section(weather_to_show, speed_symbol, converted_wind, temp_symbol, use_fahrenheit):
+    current = weather_to_show["current"]
+    today = weather_to_show["forecast"][0] if weather_to_show["forecast"] else None
+    display_temperature = (
+        round(celsius_to_fahrenheit(current["temperature"]), 1)
+        if use_fahrenheit
+        else current["temperature"]
+    )
+    display_feels_like = (
+        round(celsius_to_fahrenheit(current["feels_like"]), 1)
+        if use_fahrenheit
+        else current["feels_like"]
+    )
+
+    st.markdown("<div class='section-title'>Current Conditions</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Tap any glass card to expand the secondary details connected to that metric.</div>",
+        unsafe_allow_html=True,
+    )
+
+    row1 = st.columns(4)
+    with row1[0]:
+        render_expandable_metric_card(
+            "Temperature",
+            f"{get_temp_icon(current['temperature'])} {display_temperature}{temp_symbol}",
+            current["condition"],
+            [
+                f"Feels like {display_feels_like}{temp_symbol}",
+                f"Today's high {round(celsius_to_fahrenheit(today['max']), 1) if use_fahrenheit and today else today['max'] if today else '--'}{temp_symbol}",
+                f"Today's low {round(celsius_to_fahrenheit(today['min']), 1) if use_fahrenheit and today else today['min'] if today else '--'}{temp_symbol}",
+            ],
+        )
+    with row1[1]:
+        render_expandable_metric_card(
+            "Feels Like",
+            f"{get_feels_like_icon(current['feels_like'])} {display_feels_like}{temp_symbol}",
+            "How it feels outside",
+            [
+                f"Cloud cover {current['cloud_cover']}%",
+                f"Visibility {current['visibility']} km",
+                f"Pressure {current['pressure']} hPa",
+            ],
+        )
+    with row1[2]:
+        render_expandable_metric_card(
+            "Humidity",
+            f"{get_humidity_icon(current['humidity'])} {current['humidity']}%",
+            "Air moisture right now",
+            [
+                f"Rain chance {today['rain_chance'] if today else 0}%",
+                f"Rain volume {format_precipitation(today['rain_total'] if today else 0)}",
+                f"Current precipitation {format_precipitation(current['precipitation'])}",
+            ],
+        )
+    with row1[3]:
+        render_expandable_metric_card(
+            "Wind",
+            f"{get_wind_icon(current['wind'])} {converted_wind} {speed_symbol}",
+            "10m wind speed",
+            [
+                f"Sunrise {today['sunrise'] if today else '--'}",
+                f"Sunset {today['sunset'] if today else '--'}",
+                f"UV index {today['uv_index'] if today else 0}",
+            ],
+        )
+
+
+def build_overview_preview_items(intelligence_payload):
+    preview_items = []
+    activity_items = intelligence_payload.get("activities", [])
+    clothing_items = intelligence_payload.get("clothing", [])
+
+    if activity_items:
+        preview_items.append(
+            {
+                "title": activity_items[0]["eyebrow"],
+                "body": activity_items[0]["body"],
+            }
+        )
+    if clothing_items:
+        preview_items.append(
+            {
+                "title": clothing_items[0]["eyebrow"],
+                "body": clothing_items[0]["body"],
+            }
+        )
+
+    return preview_items
+
+
+def render_overview_tab(weather_to_show, intelligence_payload, city_to_show, temp_symbol, use_fahrenheit):
+    render_weather_alert_banner(intelligence_payload.get("alerts", []))
+    render_todays_insight_card(
+        intelligence_payload.get("city") or city_to_show,
+        intelligence_payload.get("condition"),
+        intelligence_payload.get("insights", []),
+        show_supporting_notes=False,
+    )
+    render_recommendation_card(
+        "Recommendation Preview",
+        "Quick Scan",
+        build_overview_preview_items(intelligence_payload),
+    )
+
+
+def render_insights_tab(intelligence_payload):
+    trend_card = next((item for item in intelligence_payload.get("insights", []) if item.get("eyebrow") == "Forecast Trend"), None)
+    if trend_card:
+        st.markdown("<div class='section-title'>Forecast Insight</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-subtitle'>Trend analysis summarizes whether the forecast is warming, cooling, or staying steady.</div>",
+            unsafe_allow_html=True,
+        )
+        render_recommendation_card(
+            trend_card["title"],
+            trend_card["eyebrow"],
+            [{"title": "Trend Summary", "body": trend_card["body"]}],
+        )
+
+    st.markdown("<div class='section-title'>Detailed Weather Interpretation</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Feels-like, humidity, wind, and the short forecast trend are separated into focused cards.</div>",
+        unsafe_allow_html=True,
+    )
+    render_guidance_card_grid(intelligence_payload.get("insights", []), grid_variant="insights")
+
+    st.markdown("<div class='section-title'>Weather Scores</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Comfort, outdoor conditions, and travel readiness remain separate so each signal is easy to scan.</div>",
+        unsafe_allow_html=True,
+    )
+    render_weather_score_row(intelligence_payload.get("scores", []))
+
+
+def render_clothing_tab(intelligence_payload):
+    st.markdown("<div class='section-title'>What To Wear</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Browse visual outfit pieces for each clothing category, then refresh individual cards to cycle through alternate style picks.</div>",
+        unsafe_allow_html=True,
+    )
+    render_visual_clothing_grid(intelligence_payload.get("clothing", []), state_prefix="wear")
+
+
+def render_activities_tab(intelligence_payload):
+    st.markdown("<div class='section-title'>Activity Recommendations</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Walking, outdoor effort, indoor backup plans, and travel suitability are split into separate recommendation cards.</div>",
+        unsafe_allow_html=True,
+    )
+    render_guidance_card_grid(intelligence_payload.get("activities", []), grid_variant="activity")
+
+
+def render_map_tab(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    st.markdown("<div class='section-title'>Weather Map</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Switch between multiple live layers here, including clouds, temperature, rain, wind, and additional map views.</div>",
+        unsafe_allow_html=True,
+    )
+    render_live_weather_map(
+        weather_to_show,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+        show_controls=True,
+        expanded=True,
+        preferred_layer=st.session_state.get("weather_map_layer", MAP_LAYER_OPTIONS[0]),
+    )
+
+
+def build_compare_city_card(weather, city_name, temp_symbol, speed_symbol, use_fahrenheit, label):
+    display_city = city_name.split(",")[0].strip() if city_name else "Selected city"
+    current = weather.get("current") or {}
+    display_temperature = (
+        format_temperature_text(current.get("temperature", 0), temp_symbol, use_fahrenheit)
+        if current.get("temperature") is not None
+        else f"--{temp_symbol}"
+    )
+    display_feels_like = (
+        format_temperature_text(current.get("feels_like", 0), temp_symbol, use_fahrenheit)
+        if current.get("feels_like") is not None
+        else f"--{temp_symbol}"
+    )
+    humidity_value = f"{current.get('humidity')}%" if current.get("humidity") is not None else "--"
+    condition_text = current.get("condition") or "Current conditions"
+    return dedent(
+        f"""
+        <div class="intel-card">
+            <div class="intel-card-kicker">{escape(label)}</div>
+            <div class="intel-card-title">{escape(display_city)}</div>
+            <div class="intel-card-body">{escape(condition_text)}</div>
+            <div class="intel-support-grid">
+                <div class="intel-mini-note">
+                    <div class="intel-mini-note-label">Temperature</div>
+                    <div class="intel-mini-note-title">{escape(display_temperature)}</div>
+                </div>
+                <div class="intel-mini-note">
+                    <div class="intel-mini-note-label">Feels Like</div>
+                    <div class="intel-mini-note-title">{escape(display_feels_like)}</div>
+                </div>
+                <div class="intel-mini-note">
+                    <div class="intel-mini-note-label">Humidity</div>
+                    <div class="intel-mini-note-title">{escape(humidity_value)}</div>
+                </div>
+            </div>
+        </div>
+        """
+    ).strip()
+
+
+def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    st.markdown("<div class='section-title'>Compare Two Cities</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Compare two cities side by side without changing the main city shown across the rest of the app.</div>",
+        unsafe_allow_html=True,
+    )
+
+    auto_primary_city = city_to_show or weather_to_show.get("resolved_city") or "Current city"
+    if st.session_state.get("compare_primary_city_seed") != auto_primary_city:
+        st.session_state["compare_primary_city_query"] = auto_primary_city
+        st.session_state["compare_primary_city_seed"] = auto_primary_city
+        st.session_state["compare_primary_city_selection"] = build_weather_search_entry(weather_to_show, meta="Current city")
+        st.session_state["compare_primary_weather"] = weather_to_show
+
+    input_columns = st.columns(2)
+    with input_columns[0]:
+        primary_event = SEARCH_COMPONENT(
+            initial_value=st.session_state.get("compare_primary_city_query", ""),
+            recent_searches=get_search_component_recent_entries(),
+            placeholder="First city",
+            enable_geolocation=False,
+            emit_drafts=True,
+            key="compare_primary_city_search_component",
+            default=None,
+        )
+        handle_compare_search_component_event(
+            primary_event,
+            "compare_primary_city_query",
+            "compare_primary_city_selection",
+            "compare_primary_search_event_id",
+        )
+        primary_query = st.session_state.get("compare_primary_city_query", "")
+    with input_columns[1]:
+        secondary_event = SEARCH_COMPONENT(
+            initial_value=st.session_state.get("compare_secondary_city_query", ""),
+            recent_searches=get_search_component_recent_entries(),
+            placeholder="Second city",
+            enable_geolocation=False,
+            emit_drafts=True,
+            key="compare_secondary_city_search_component",
+            default=None,
+        )
+        handle_compare_search_component_event(
+            secondary_event,
+            "compare_secondary_city_query",
+            "compare_secondary_city_selection",
+            "compare_secondary_search_event_id",
+        )
+        secondary_query = st.session_state.get("compare_secondary_city_query", "")
+
+    if st.button("Compare Cities", key="compare_city_button", type="secondary", use_container_width=False):
+        if not primary_query.strip() or not secondary_query.strip():
+            st.warning("Enter both cities to compare.")
+        else:
+            try:
+                primary_selection = st.session_state.get("compare_primary_city_selection")
+                secondary_selection = st.session_state.get("compare_secondary_city_selection")
+                primary_search_value = (
+                    primary_selection
+                    if primary_selection
+                    and primary_query.strip().lower() in {
+                        str(primary_selection.get("label") or "").strip().lower(),
+                        str(primary_selection.get("query") or "").strip().lower(),
+                    }
+                    else primary_query.strip()
+                )
+                secondary_search_value = (
+                    secondary_selection
+                    if secondary_selection
+                    and secondary_query.strip().lower() in {
+                        str(secondary_selection.get("label") or "").strip().lower(),
+                        str(secondary_selection.get("query") or "").strip().lower(),
+                    }
+                    else secondary_query.strip()
+                )
+
+                primary_weather = (
+                    weather_to_show
+                    if primary_query.strip().lower() == auto_primary_city.strip().lower()
+                    else get_weather(primary_search_value)
+                )
+                secondary_weather = get_weather(secondary_search_value)
+                st.session_state["compare_primary_city_query"] = primary_weather.get("resolved_city") or primary_query.strip()
+                st.session_state["compare_secondary_city_query"] = secondary_weather.get("resolved_city") or secondary_query.strip()
+                st.session_state["compare_primary_city_selection"] = build_weather_search_entry(primary_weather, meta="Recent search")
+                st.session_state["compare_secondary_city_selection"] = build_weather_search_entry(secondary_weather, meta="Recent search")
+                st.session_state["compare_primary_weather"] = primary_weather
+                st.session_state["compare_secondary_weather"] = secondary_weather
+                remember_recent_search(primary_weather)
+                remember_recent_search(secondary_weather)
+            except WeatherError as exc:
+                st.error(str(exc))
+
+    primary_weather = st.session_state.get("compare_primary_weather") or weather_to_show
+    secondary_weather = st.session_state.get("compare_secondary_weather")
+    if not secondary_weather:
+        st.info("Load a second city to compare it with the current city.")
+        return
+
+    primary_city = primary_weather.get("resolved_city") or auto_primary_city
+    compare_city = secondary_weather.get("resolved_city") or "Comparison city"
+
+    hero_columns = st.columns(2)
+    with hero_columns[0]:
+        st.markdown(
+            build_compare_city_card(primary_weather, primary_city, temp_symbol, speed_symbol, use_fahrenheit, "First city"),
+            unsafe_allow_html=True,
+        )
+    with hero_columns[1]:
+        st.markdown(
+            build_compare_city_card(secondary_weather, compare_city, temp_symbol, speed_symbol, use_fahrenheit, "Second city"),
+            unsafe_allow_html=True,
+        )
+
+    forecast_columns = st.columns(2)
+    with forecast_columns[0]:
+        render_forecast_section(
+            primary_weather,
+            temp_symbol,
+            use_fahrenheit,
+            day_limit=5,
+            section_title=f"{primary_city.split(',')[0].strip()} 5-Day Forecast",
+            section_subtitle="Tap any day to open the full forecast detail view for that date.",
+            instance_id="compare_primary",
+        )
+    with forecast_columns[1]:
+        render_forecast_section(
+            secondary_weather,
+            temp_symbol,
+            use_fahrenheit,
+            day_limit=5,
+            section_title=f"{compare_city.split(',')[0].strip()} 5-Day Forecast",
+            section_subtitle="Tap any day to open the full forecast detail view for that date.",
+            instance_id="compare_secondary",
+        )
+
+    trend_items = []
+    for label, weather in [("First city", primary_weather), ("Second city", secondary_weather)]:
+        trend_card = build_forecast_trend_insight(weather, temp_symbol, use_fahrenheit)
+        if trend_card:
+            trend_items.append({"title": f"{label}: {trend_card['title']}", "body": trend_card["body"]})
+    if trend_items:
+        render_recommendation_card("Forecast Trend Comparison", "Trend Snapshot", trend_items)
+
+
+def render_weather_tabbed_section(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    intelligence_payload = build_weather_intelligence_payload(
+        weather_to_show,
+        city_to_show,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+    )
+    active_section = st.session_state.get("active_content_section", CONTENT_SECTIONS[0])
+    if active_section not in CONTENT_SECTIONS:
+        active_section = CONTENT_SECTIONS[0]
+        st.session_state["active_content_section"] = active_section
+
+    if active_section == "Overview":
+        render_overview_tab(weather_to_show, intelligence_payload, city_to_show, temp_symbol, use_fahrenheit)
+    elif active_section == "Insights":
+        render_insights_tab(intelligence_payload)
+    elif active_section == "What to Wear":
+        render_clothing_tab(intelligence_payload)
+    elif active_section == "Activities":
+        render_activities_tab(intelligence_payload)
+    elif active_section == "Map":
+        render_map_tab(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit)
+    elif active_section == "Compare":
+        render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit)
+
+
+# Forecast rows sit directly under current conditions with a lighter visual style.
+def _legacy_render_forecast_section(weather_to_show, temp_symbol, use_fahrenheit):
+    forecast = weather_to_show["forecast"]
+
+    st.markdown("<div class='section-title'>10-Day Forecast</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Tap any day to open the full forecast detail view for that date.</div>",
+        unsafe_allow_html=True,
+    )
+
+    if len(forecast) < 10:
+        st.warning("Forecast data is partially available right now.")
+
+    low_values = []
+    high_values = []
+    for day in forecast[:day_limit]:
+        low_value = round(celsius_to_fahrenheit(day["min"]), 1) if use_fahrenheit else day["min"]
+        high_value = round(celsius_to_fahrenheit(day["max"]), 1) if use_fahrenheit else day["max"]
+        low_values.append(low_value)
+        high_values.append(high_value)
+
+    overall_low = min(low_values) if low_values else 0
+    overall_high = max(high_values) if high_values else 1
+    spread = max(overall_high - overall_low, 1)
+
+    forecast_rows = []
+    for index, day in enumerate(forecast[:day_limit]):
+        low_value = low_values[index]
+        high_value = high_values[index]
+        fill_percent = ((high_value - overall_low) / spread) * 100
+        forecast_rows.append(
+            build_forecast_row(
+                day["day"],
+                day["condition"],
+                low_value,
+                high_value,
+                temp_symbol,
+                fill_percent,
+                forecast_index=index,
+            )
+        )
+
+    render_forecast_list(forecast_rows)
+
+
+def build_hourly_temperature_chart(hourly_points, use_fahrenheit, temp_symbol):
+    if not hourly_points:
+        return dedent(
+            """
+            <div class="forecast-chart-empty">
+                Hourly temperature detail is unavailable for this day right now.
+            </div>
+            """
+        ).strip()
+
+    chart_points = []
+    for point in hourly_points:
+        display_temp = round(celsius_to_fahrenheit(point["temperature"]), 1) if use_fahrenheit else point["temperature"]
+        chart_points.append({"time": point["time"], "temperature": display_temp})
+
+    temperatures = [point["temperature"] for point in chart_points]
+    min_temp = min(temperatures)
+    max_temp = max(temperatures)
+    temp_range = max(max_temp - min_temp, 1)
+    width = 900
+    height = 220
+    padding_left = 44
+    padding_right = 18
+    padding_top = 20
+    padding_bottom = 34
+    usable_width = width - padding_left - padding_right
+    usable_height = height - padding_top - padding_bottom
+
+    svg_points = []
+    for index, point in enumerate(chart_points):
+        x_position = padding_left if len(chart_points) == 1 else padding_left + (usable_width * index / (len(chart_points) - 1))
+        y_position = padding_top + ((max_temp - point["temperature"]) / temp_range) * usable_height
+        svg_points.append((x_position, y_position, point))
+
+    polyline_points = " ".join(f"{x:.2f},{y:.2f}" for x, y, _ in svg_points)
+    area_points = (
+        f"{padding_left},{padding_top + usable_height} "
+        + polyline_points
+        + f" {svg_points[-1][0]:.2f},{padding_top + usable_height}"
+    )
+    grid_lines = []
+    y_axis_labels = []
+    for step in range(5):
+        y_position = padding_top + (usable_height * step / 4)
+        label_value = max_temp - ((temp_range * step) / 4)
+        grid_lines.append(
+            f'<line x1="{padding_left}" y1="{y_position:.2f}" x2="{width - padding_right}" y2="{y_position:.2f}" />'
+        )
+        y_axis_labels.append(
+            f'<text x="10" y="{y_position + 4:.2f}">{label_value:.1f}{temp_symbol.strip()}</text>'
+        )
+    x_labels = []
+    step_size = max(1, len(svg_points) // 6)
+    for index, (x_position, _, point) in enumerate(svg_points):
+        if index % step_size != 0 and index != len(svg_points) - 1:
+            continue
+        x_labels.append(
+            f'<text x="{x_position:.2f}" y="{height - 18}" text-anchor="middle">{point["time"]}</text>'
+        )
+    dot_markup = "".join(
+        f'<circle cx="{x_position:.2f}" cy="{y_position:.2f}" r="4" />'
+        for x_position, y_position, _ in svg_points
+    )
+    dot_labels = "".join(
+        f'<text x="{x_position:.2f}" y="{y_position - 10:.2f}" text-anchor="middle">{point["temperature"]:.1f}{temp_symbol.strip()}</text>'
+        for x_position, y_position, point in svg_points
+    )
+    svg_markup = dedent(
+        f"""
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" preserveAspectRatio="none" aria-label="Hourly temperature chart">
+            <defs>
+                <linearGradient id="forecast-temp-area" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stop-color="#FFE292" stop-opacity="0.48" />
+                    <stop offset="100%" stop-color="#FFE292" stop-opacity="0.02" />
+                </linearGradient>
+            </defs>
+            <g stroke="rgba(255,255,255,0.12)" stroke-width="1" fill="none">
+                {''.join(grid_lines)}
+            </g>
+            <g fill="rgba(242,248,255,0.76)" font-size="11" font-family="Segoe UI, sans-serif">
+                {''.join(y_axis_labels)}
+            </g>
+            <polygon points="{area_points}" fill="url(#forecast-temp-area)" />
+            <polyline points="{polyline_points}" fill="none" stroke="#FFE292" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+            <g fill="#F6FBFF" stroke="#FFE292" stroke-width="2">
+                {dot_markup}
+            </g>
+            <g fill="rgba(242,248,255,0.76)" font-size="11" font-family="Segoe UI, sans-serif">
+                {dot_labels}
+                {''.join(x_labels)}
+            </g>
+        </svg>
+        """
+    ).strip()
+    svg_encoded = base64.b64encode(svg_markup.encode("utf-8")).decode("ascii")
+    return dedent(
+        f"""
+        <div class="forecast-chart-shell">
+            <div class="forecast-chart-title">Temperature through the day</div>
+            <img class="forecast-chart-image" src="data:image/svg+xml;base64,{svg_encoded}" alt="Hourly temperature chart" />
+        </div>
+        """
+    ).strip()
+
+
+def calculate_daylight_duration(sunrise, sunset):
+    try:
+        sunrise_time = datetime.strptime(sunrise, "%I:%M %p")
+        sunset_time = datetime.strptime(sunset, "%I:%M %p")
+    except (TypeError, ValueError):
+        return "--"
+
+    total_minutes = int((sunset_time - sunrise_time).total_seconds() // 60)
+    if total_minutes <= 0:
+        return "--"
+
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours}h {minutes}m"
+
+
+def build_forecast_modal_markup(day, temp_symbol, speed_symbol, use_fahrenheit):
+    low_value = round(celsius_to_fahrenheit(day["min"]), 1) if use_fahrenheit else day["min"]
+    high_value = round(celsius_to_fahrenheit(day["max"]), 1) if use_fahrenheit else day["max"]
+    hourly_points = day.get("hourly") or []
+    hourly_snapshot = hourly_points[len(hourly_points) // 2] if hourly_points else {}
+    snapshot_temperature = (
+        round(celsius_to_fahrenheit(hourly_snapshot["temperature"]), 1)
+        if hourly_snapshot and use_fahrenheit
+        else hourly_snapshot.get("temperature", "--")
+        if hourly_snapshot
+        else "--"
+    )
+    snapshot_wind = (
+        round(kmh_to_mph(hourly_snapshot["wind"]), 1)
+        if hourly_snapshot and speed_symbol == "mph"
+        else hourly_snapshot.get("wind", "--")
+        if hourly_snapshot
+        else "--"
+    )
+    daylight_duration = calculate_daylight_duration(day["sunrise"], day["sunset"])
+    hourly_chart_html = build_hourly_temperature_chart(hourly_points, use_fahrenheit, temp_symbol)
+    hero_stats = [
+        ("Rain chance", f"{day['rain_chance']}%"),
+        ("Rain total", format_precipitation(day["rain_total"])),
+        ("Daylight", daylight_duration),
+        ("UV peak", day["uv_index"]),
+    ]
+    detail_stats = [
+        ("Condition", day["condition"]),
+        ("Day low", f"{low_value}{temp_symbol}"),
+        ("Day high", f"{high_value}{temp_symbol}"),
+        ("Sunrise", day["sunrise"]),
+        ("Sunset", day["sunset"]),
+        ("Midday temp", f"{snapshot_temperature}{temp_symbol}" if hourly_snapshot else "--"),
+        ("Midday wind", f"{snapshot_wind} {speed_symbol}" if hourly_snapshot else "--"),
+    ]
+    hero_stats_html = "".join(
+        dedent(
+            f"""
+            <div class="skyline-forecast-hero-stat">
+                <div class="skyline-forecast-hero-stat-label">{escape(str(label))}</div>
+                <div class="skyline-forecast-hero-stat-value">{escape(str(value))}</div>
+            </div>
+            """
+        ).strip()
+        for label, value in hero_stats
+    )
+    detail_stats_html = "".join(
+        dedent(
+            f"""
+            <div class="skyline-forecast-detail-stat">
+                <div class="skyline-forecast-detail-stat-label">{escape(str(label))}</div>
+                <div class="skyline-forecast-detail-stat-value">{escape(str(value))}</div>
+            </div>
+            """
+        ).strip()
+        for label, value in detail_stats
+    )
+    story_copy = (
+        f"Conditions stay {day['condition'].lower()} through the day with a {day['rain_chance']}% rain chance, "
+        f"around {format_precipitation(day['rain_total'])} of precipitation, sunrise at {day['sunrise']}, "
+        f"sunset at {day['sunset']}, and a UV peak near {day['uv_index']}."
+    )
+
+    return dedent(
+        f"""
+        <div class="skyline-forecast-dialog-shell">
+            <div class="skyline-forecast-dialog-hero">
+                <div class="skyline-forecast-dialog-hero-main">
+                    <div class="skyline-forecast-dialog-kicker">Expanded day forecast</div>
+                    <div class="skyline-forecast-dialog-title">{escape(day['day'])}</div>
+                    <div class="skyline-forecast-dialog-condition">{escape(get_condition_icon(day['condition']))} {escape(day['condition'])}</div>
+                    <div class="skyline-forecast-dialog-range">Low {escape(str(low_value))}{escape(temp_symbol)} | High {escape(str(high_value))}{escape(temp_symbol)}</div>
+                </div>
+                <div class="skyline-forecast-dialog-hero-side">
+                    <div class="skyline-forecast-dialog-kicker">Key pulse</div>
+                    <div class="skyline-forecast-hero-stat-grid">{hero_stats_html}</div>
+                </div>
+            </div>
+            <div class="skyline-forecast-dialog-story">{escape(story_copy)}</div>
+            <div class="skyline-forecast-detail-grid">{detail_stats_html}</div>
+            {hourly_chart_html}
+        </div>
+        """
+    ).strip()
+
+
+def render_forecast_section(
+    weather_to_show,
+    temp_symbol,
+    use_fahrenheit,
+    day_limit=10,
+    section_title="10-Day Forecast",
+    section_subtitle="Tap any day to open the full forecast detail view for that date.",
+    instance_id="main",
+):
+    forecast = weather_to_show["forecast"]
+    visible_forecast = forecast[:day_limit]
+
+    st.markdown(f"<div class='section-title'>{escape(section_title)}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='section-subtitle'>{escape(section_subtitle)}</div>",
+        unsafe_allow_html=True,
+    )
+
+    if len(forecast) < day_limit:
+        st.warning("Forecast data is partially available right now.")
+
+    if not visible_forecast:
+        return
+
+    speed_symbol = "mph" if st.session_state["speed_unit"] == "mph" else "km/h"
+    low_values = []
+    high_values = []
+    for day in visible_forecast:
+        low_value = round(celsius_to_fahrenheit(day["min"]), 1) if use_fahrenheit else day["min"]
+        high_value = round(celsius_to_fahrenheit(day["max"]), 1) if use_fahrenheit else day["max"]
+        low_values.append(low_value)
+        high_values.append(high_value)
+
+    overall_low = min(low_values) if low_values else 0
+    overall_high = max(high_values) if high_values else 1
+    spread = max(overall_high - overall_low, 1)
+    modal_markup = []
+    row_markup = []
+
+    for index, day in enumerate(visible_forecast):
+        low_value = low_values[index]
+        high_value = high_values[index]
+        fill_percent = max(18, min(((high_value - overall_low) / spread) * 100, 100))
+        modal_markup.append(build_forecast_modal_markup(day, temp_symbol, speed_symbol, use_fahrenheit))
+        row_markup.append(
+            dedent(
+                f"""
+                <div class="forecast-row-shell">
+                    <button class="forecast-item-label forecast-row-trigger" type="button" data-forecast-index="{index}">
+                        <div class="forecast-row">
+                            <div class="forecast-day-name">{escape(day["day"])}</div>
+                            <div class="forecast-icon">{escape(get_condition_icon(day["condition"]))}</div>
+                            <div class="forecast-low">{escape(str(low_value))}{escape(temp_symbol)}</div>
+                            <div class="forecast-bar"><div class="forecast-bar-fill" style="width:{fill_percent}%"></div></div>
+                            <div class="forecast-high">{escape(str(high_value))}{escape(temp_symbol)}</div>
+                            <div class="forecast-chevron">&#9662;</div>
+                        </div>
+                    </button>
+                </div>
+                """
+            ).strip()
+        )
+
+    components.html(
+        f"""
+        <div class="forecast-list">
+            {''.join(row_markup)}
+        </div>
+        <style>
+          body {{
+            margin: 0;
+            background: transparent;
+            font-family: "Segoe UI", sans-serif;
+            overflow: hidden;
+          }}
+          .forecast-list {{
+            border-radius: 28px;
+            padding: 1rem 1.1rem;
+            margin-top: 0.65rem;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: none;
+            backdrop-filter: blur(16px);
+          }}
+          .forecast-row-shell + .forecast-row-shell {{
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+          }}
+          .forecast-item-label {{
+            width: 100%;
+            display: block;
+            border: 0;
+            border-radius: 18px;
+            padding: 0;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+            text-align: left;
+            transition: transform 0.25s ease, background 0.25s ease;
+          }}
+          .forecast-item-label:hover {{
+            background: rgba(255,255,255,0.04);
+            transform: translateY(-1px);
+          }}
+          .forecast-row {{
+            position: relative;
+            display: grid;
+            grid-template-columns: 3.2rem 2rem 3.3rem 1fr 3.3rem 1.9rem;
+            gap: 0.6rem;
+            align-items: center;
+            padding: 0.62rem 0;
+            color: #f6fbff;
+          }}
+          .forecast-day-name {{
+            font-weight: 700;
+          }}
+          .forecast-icon {{
+            font-size: 1.1rem;
+          }}
+          .forecast-low,
+          .forecast-high {{
+            opacity: 0.92;
+            font-size: 0.96rem;
+          }}
+          .forecast-bar {{
+            position: relative;
+            height: 0.28rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.14);
+            overflow: hidden;
+          }}
+          .forecast-bar-fill {{
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(251, 196, 111, 0.9), rgba(255, 228, 134, 0.98));
+          }}
+          .forecast-chevron {{
+            justify-self: end;
+            width: 1.65rem;
+            height: 1.65rem;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            font-size: 0.9rem;
+          }}
+          @media (max-width: 900px) {{
+            .forecast-row {{
+              grid-template-columns: 2.8rem 1.6rem 2.9rem 1fr 2.9rem 1.7rem;
+              gap: 0.45rem;
+            }}
+          }}
+        </style>
+        <script>
+          const forecastInstanceId = {json.dumps(instance_id)};
+          const cleanupKey = `__skylineForecastCleanup_${{forecastInstanceId}}`;
+          if (window[cleanupKey]) {{
+            window[cleanupKey]();
+          }}
+
+          const modalMarkup = {json.dumps(modal_markup, ensure_ascii=False)};
+          const hostWindow = window.parent;
+          const hostDoc = hostWindow.document;
+          const portalId = `skyline-forecast-modal-portal-${{forecastInstanceId}}`;
+          const styleId = `skyline-forecast-modal-style-${{forecastInstanceId}}`;
+          let portal = hostDoc.getElementById(portalId);
+
+          if (!portal) {{
+            portal = hostDoc.createElement("div");
+            portal.id = portalId;
+            hostDoc.body.appendChild(portal);
+          }}
+
+          let style = hostDoc.getElementById(styleId);
+          if (!style) {{
+            style = hostDoc.createElement("style");
+            style.id = styleId;
+            hostDoc.head.appendChild(style);
+          }}
+          style.textContent = `
+              body.skyline-forecast-modal-open {{
+                overflow: hidden;
+              }}
+              #${{portalId}} {{
+                position: fixed;
+                inset: 0;
+                z-index: 9999;
+                pointer-events: none;
+              }}
+              #${{portalId}}.is-open {{
+                pointer-events: auto;
+              }}
+              .skyline-forecast-overlay {{
+                position: absolute;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: clamp(0.9rem, 2vw, 1.75rem);
+              }}
+              .skyline-forecast-backdrop {{
+                position: absolute;
+                inset: 0;
+                background: rgba(6, 16, 28, 0.32);
+                backdrop-filter: blur(6px);
+                animation: skylineForecastBackdropIn 0.22s ease both;
+              }}
+              .skyline-forecast-overlay.is-closing .skyline-forecast-backdrop {{
+                animation: skylineForecastBackdropOut 0.18s ease both;
+              }}
+              .skyline-forecast-card {{
+                position: relative;
+                width: min(84vw, 920px);
+                max-width: min(84vw, 920px);
+                max-height: 92vh;
+                overflow-y: auto;
+                border-radius: 30px;
+                padding: 1.95rem 1rem 1rem;
+                background: linear-gradient(180deg, rgba(120, 154, 187, 0.18), rgba(17, 43, 72, 0.28));
+                border: 1px solid rgba(255,255,255,0.16);
+                box-shadow: 0 24px 58px rgba(4, 15, 32, 0.26);
+                backdrop-filter: blur(24px);
+                color: #f6fbff;
+                transform-origin: top center;
+                animation: skylineForecastCardIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+              }}
+              .skyline-forecast-overlay.is-closing .skyline-forecast-card {{
+                animation: skylineForecastCardOut 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+              }}
+              .skyline-forecast-close {{
+                position: absolute;
+                top: 0.7rem;
+                right: 0.95rem;
+                border-radius: 999px;
+                width: 2.15rem;
+                height: 2.15rem;
+                min-width: 2.15rem;
+                padding: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid rgba(255,255,255,0.14);
+                background: rgba(255,255,255,0.06);
+                color: rgba(242,248,255,0.82);
+                font-size: 1.1rem;
+                line-height: 1;
+                cursor: pointer;
+                box-shadow: 0 8px 20px rgba(4, 15, 32, 0.14);
+              }}
+              .skyline-forecast-close:hover {{
+                background: rgba(255,255,255,0.1);
+                color: #f8fbff;
+              }}
+              .skyline-forecast-dialog-shell {{
+                padding-top: 0.45rem;
+              }}
+              .skyline-forecast-dialog-hero {{
+                display: grid;
+                grid-template-columns: minmax(0, 1.15fr) minmax(240px, 0.85fr);
+                gap: 0.8rem;
+                align-items: stretch;
+              }}
+              .skyline-forecast-dialog-hero-main,
+              .skyline-forecast-dialog-hero-side,
+              .skyline-forecast-dialog-story,
+              .skyline-forecast-dialog-shell .forecast-chart-shell,
+              .skyline-forecast-detail-grid {{
+                border-radius: 22px;
+                background: rgba(255,255,255,0.065);
+                border: 1px solid rgba(255,255,255,0.08);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+              }}
+              .skyline-forecast-dialog-hero-main,
+              .skyline-forecast-dialog-hero-side {{
+                padding: 0.95rem 1rem;
+              }}
+              .skyline-forecast-dialog-kicker,
+              .skyline-forecast-dialog-shell .forecast-chart-title,
+              .skyline-forecast-hero-stat-label,
+              .skyline-forecast-detail-stat-label {{
+                font-size: 0.76rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                opacity: 0.7;
+              }}
+              .skyline-forecast-dialog-title {{
+                margin-top: 0.25rem;
+                font-size: clamp(1.8rem, 3vw, 2.45rem);
+                font-weight: 800;
+                line-height: 1;
+              }}
+              .skyline-forecast-dialog-condition {{
+                margin-top: 0.45rem;
+                font-size: 0.98rem;
+                opacity: 0.9;
+              }}
+              .skyline-forecast-dialog-range {{
+                margin-top: 0.45rem;
+                font-size: 0.94rem;
+                opacity: 0.82;
+              }}
+              .skyline-forecast-dialog-story {{
+                margin-top: 0.8rem;
+                padding: 0.85rem 0.95rem;
+                line-height: 1.55;
+                font-size: 0.92rem;
+                opacity: 0.92;
+              }}
+              .skyline-forecast-hero-stat-grid {{
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.55rem;
+              }}
+              .skyline-forecast-hero-stat,
+              .skyline-forecast-detail-stat {{
+                padding: 0.72rem 0.8rem;
+                border-radius: 18px;
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.08);
+              }}
+              .skyline-forecast-hero-stat-value,
+              .skyline-forecast-detail-stat-value {{
+                margin-top: 0.28rem;
+                font-size: 1rem;
+                font-weight: 700;
+              }}
+              .skyline-forecast-dialog-shell .forecast-chart-shell {{
+                margin-top: 0.8rem;
+                padding: 0.85rem 0.95rem 0.75rem;
+              }}
+              .skyline-forecast-dialog-shell .forecast-chart-image {{
+                width: 100%;
+                height: 220px;
+                margin-top: 0.7rem;
+                display: block;
+              }}
+              .skyline-forecast-dialog-shell .forecast-chart-empty {{
+                margin-top: 0.8rem;
+                padding: 0.85rem 0.95rem;
+                font-size: 0.92rem;
+                opacity: 0.86;
+              }}
+              .skyline-forecast-detail-grid {{
+                margin-top: 0.8rem;
+                padding: 0.85rem 0.95rem;
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 0.55rem;
+              }}
+              .skyline-forecast-dialog-shell svg text {{
+                fill: rgba(242,248,255,0.76);
+              }}
+              @keyframes skylineForecastBackdropIn {{
+                from {{
+                  opacity: 0;
+                }}
+                to {{
+                  opacity: 1;
+                }}
+              }}
+              @keyframes skylineForecastBackdropOut {{
+                from {{
+                  opacity: 1;
+                }}
+                to {{
+                  opacity: 0;
+                }}
+              }}
+              @keyframes skylineForecastCardIn {{
+                from {{
+                  opacity: 0;
+                  transform: translateY(18px) scale(0.975);
+                }}
+                to {{
+                  opacity: 1;
+                  transform: translateY(0) scale(1);
+                }}
+              }}
+              @keyframes skylineForecastCardOut {{
+                from {{
+                  opacity: 1;
+                  transform: translateY(0) scale(1);
+                }}
+                to {{
+                  opacity: 0;
+                  transform: translateY(18px) scale(0.975);
+                }}
+              }}
+              @media (max-width: 1100px) {{
+                .skyline-forecast-dialog-hero {{
+                  grid-template-columns: 1fr;
+                }}
+                .skyline-forecast-detail-grid {{
+                  grid-template-columns: repeat(2, minmax(0, 1fr));
+                }}
+              }}
+              @media (max-width: 720px) {{
+                .skyline-forecast-hero-stat-grid,
+                .skyline-forecast-detail-grid {{
+                  grid-template-columns: 1fr;
+                }}
+                .skyline-forecast-card {{
+                  width: min(95vw, 760px);
+                  max-width: min(95vw, 760px);
+                  padding: 1.65rem 0.85rem 0.85rem;
+                }}
+              }}
+            `;
+
+          const forecastList = document.querySelector(".forecast-list");
+          let resizeObserver = null;
+          let closeTimer = null;
+
+          const resizeFrame = () => {{
+            const listHeight = forecastList ? Math.ceil(forecastList.getBoundingClientRect().height) : 0;
+            const height = Math.max(listHeight + 10, 280);
+            hostWindow.postMessage({{ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height }}, "*");
+          }};
+
+          const finalizeCloseModal = () => {{
+            if (closeTimer) {{
+              hostWindow.clearTimeout(closeTimer);
+              closeTimer = null;
+            }}
+            portal.classList.remove("is-open");
+            portal.innerHTML = "";
+            hostDoc.body.classList.remove("skyline-forecast-modal-open");
+          }};
+
+          const closeModal = (animate = true) => {{
+            const overlay = portal.querySelector(".skyline-forecast-overlay");
+            if (animate && overlay && !overlay.classList.contains("is-closing")) {{
+              overlay.classList.add("is-closing");
+              closeTimer = hostWindow.setTimeout(() => finalizeCloseModal(), 180);
+              return;
+            }}
+            finalizeCloseModal();
+          }};
+
+          const openModal = (index) => {{
+            const modalBody = modalMarkup[index];
+            if (!modalBody) {{
+              return;
+            }}
+
+            portal.innerHTML = `
+              <div class="skyline-forecast-overlay">
+                <div class="skyline-forecast-backdrop" data-close="true"></div>
+                <div class="skyline-forecast-card" role="dialog" aria-modal="true" aria-label="{escape(section_title)}">
+                  <button class="skyline-forecast-close" type="button" data-close="true" aria-label="Close">&times;</button>
+                  ${{modalBody}}
+                </div>
+              </div>
+            `;
+            portal.classList.add("is-open");
+            hostDoc.body.classList.add("skyline-forecast-modal-open");
+          }};
+
+          const handlePortalClick = (event) => {{
+            if (event.target.closest("[data-close='true']")) {{
+              closeModal(true);
+            }}
+          }};
+
+          const handleEscape = (event) => {{
+            if (event.key === "Escape") {{
+              closeModal(true);
+            }}
+          }};
+
+          portal.addEventListener("click", handlePortalClick);
+          hostWindow.addEventListener("keydown", handleEscape);
+          Array.from(document.querySelectorAll(".forecast-row-trigger")).forEach((button) => {{
+            button.addEventListener("click", () => openModal(Number(button.dataset.forecastIndex)));
+          }});
+
+          window[cleanupKey] = () => {{
+            if (resizeObserver) {{
+              resizeObserver.disconnect();
+              resizeObserver = null;
+            }}
+            portal.removeEventListener("click", handlePortalClick);
+            hostWindow.removeEventListener("keydown", handleEscape);
+            closeModal(false);
+            if (portal.parentNode) {{
+              portal.parentNode.removeChild(portal);
+            }}
+          }};
+
+          if (window.ResizeObserver && forecastList) {{
+            resizeObserver = new ResizeObserver(() => resizeFrame());
+            resizeObserver.observe(forecastList);
+          }}
+
+          resizeFrame();
+        </script>
+        """,
+        height=max(280, 92 + (len(row_markup) * 46)),
+    )
+
+
+def _legacy_render_forecast_dialog(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    return
+
+
+def build_hourly_outlook_strip(hourly_points, use_fahrenheit, temp_symbol, speed_symbol):
+    if not hourly_points:
+        return ""
+
+    preview_points = hourly_points[::3][:8]
+    cards = []
+    for point in preview_points:
+        display_temp = round(celsius_to_fahrenheit(point["temperature"]), 1) if use_fahrenheit else point["temperature"]
+        display_wind = round(kmh_to_mph(point["wind"]), 1) if speed_symbol == "mph" else point["wind"]
+        cards.append(
+            dedent(
+                f"""
+                <div class="forecast-hour-card">
+                    <div class="forecast-hour-time">{point['time']}</div>
+                    <div class="forecast-hour-icon">{get_condition_icon(point['condition'])}</div>
+                    <div class="forecast-hour-temp">{display_temp}{temp_symbol}</div>
+                    <div class="forecast-hour-meta">{point['rain_chance']}% rain</div>
+                    <div class="forecast-hour-meta">{display_wind} {speed_symbol}</div>
+                </div>
+                """
+            ).strip()
+        )
+
+    return dedent(
+        f"""
+        <div class="forecast-hour-strip-shell">
+            <div class="forecast-hour-strip-title">Day rhythm</div>
+            <div class="forecast-hour-strip">
+                {''.join(cards)}
+            </div>
+        </div>
+        """
+    ).strip()
+
+
+def refresh_weather_with_hourly_data(weather_to_show, forecast_index):
+    forecast = (weather_to_show or {}).get("forecast") or []
+    if forecast_index < len(forecast) and forecast[forecast_index].get("hourly"):
+        return weather_to_show
+
+    location = (weather_to_show or {}).get("location") or {}
+    latitude = location.get("latitude")
+    longitude = location.get("longitude")
+    if latitude is None or longitude is None:
+        return weather_to_show
+
+    try:
+        refreshed_weather = get_weather(
+            {
+                "label": weather_to_show.get("resolved_city") or "Selected Location",
+                "query": weather_to_show.get("resolved_city") or "Selected Location",
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        )
+    except WeatherError:
+        return weather_to_show
+
+    resolved_key = refreshed_weather["resolved_city"].strip().upper()
+    st.session_state["last_weather"] = refreshed_weather
+    st.session_state["last_city_display"] = refreshed_weather["resolved_city"]
+    st.session_state["last_city_key"] = resolved_key
+    save_last_weather_state(refreshed_weather, resolved_key)
+    remember_recent_search(refreshed_weather)
+    return refreshed_weather
+
+
+def render_forecast_dialog(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    pending_index = st.session_state.pop("pending_forecast_dialog_index", None)
+    if pending_index is None:
+        return
+
+    weather_to_show = refresh_weather_with_hourly_data(weather_to_show, pending_index)
+    forecast = weather_to_show.get("forecast") or []
+    if pending_index < 0 or pending_index >= len(forecast):
+        return
+
+    day = forecast[pending_index]
+    low_value = round(celsius_to_fahrenheit(day["min"]), 1) if use_fahrenheit else day["min"]
+    high_value = round(celsius_to_fahrenheit(day["max"]), 1) if use_fahrenheit else day["max"]
+    hourly_points = day.get("hourly") or []
+    hourly_snapshot = hourly_points[len(hourly_points) // 2] if hourly_points else {}
+    snapshot_temperature = (
+        round(celsius_to_fahrenheit(hourly_snapshot["temperature"]), 1)
+        if hourly_snapshot and use_fahrenheit
+        else hourly_snapshot.get("temperature", "--")
+        if hourly_snapshot
+        else "--"
+    )
+    snapshot_wind = (
+        round(kmh_to_mph(hourly_snapshot["wind"]), 1)
+        if hourly_snapshot and speed_symbol == "mph"
+        else hourly_snapshot.get("wind", "--")
+        if hourly_snapshot
+        else "--"
+    )
+    daylight_duration = calculate_daylight_duration(day["sunrise"], day["sunset"])
+    hourly_chart_html = build_hourly_temperature_chart(hourly_points, use_fahrenheit, temp_symbol)
+    hero_stats = [
+        ("Rain chance", f"{day['rain_chance']}%"),
+        ("Rain total", format_precipitation(day["rain_total"])),
+        ("Daylight", daylight_duration),
+        ("UV peak", day["uv_index"]),
+    ]
+    detail_stats = [
+        ("Condition", day["condition"]),
+        ("Day low", f"{low_value}{temp_symbol}"),
+        ("Day high", f"{high_value}{temp_symbol}"),
+        ("Sunrise", day["sunrise"]),
+        ("Sunset", day["sunset"]),
+        ("Midday temp", f"{snapshot_temperature}{temp_symbol}" if hourly_snapshot else "--"),
+        ("Midday wind", f"{snapshot_wind} {speed_symbol}" if hourly_snapshot else "--"),
+    ]
+    hero_stats_html = "".join(
+        dedent(
+            f"""
+            <div class="forecast-hero-stat">
+                <div class="forecast-hero-stat-label">{label}</div>
+                <div class="forecast-hero-stat-value">{value}</div>
+            </div>
+            """
+        ).strip()
+        for label, value in hero_stats
+    )
+    detail_stats_html = "".join(
+        dedent(
+            f"""
+            <div class="forecast-detail-stat">
+                <div class="forecast-detail-stat-label">{label}</div>
+                <div class="forecast-detail-stat-value">{value}</div>
+            </div>
+            """
+        ).strip()
+        for label, value in detail_stats
+    )
+
+    @st.dialog("10-Day Forecast")
+    def forecast_dialog():
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stDialog"] {
+                background: rgba(6, 16, 28, 0.18);
+                backdrop-filter: blur(4px);
+            }
+            div[data-testid="stDialog"] div[role="dialog"] {
+                width: min(84vw, 920px);
+                max-width: min(84vw, 920px);
+                border-radius: 30px;
+                background: linear-gradient(180deg, rgba(120, 154, 187, 0.18), rgba(17, 43, 72, 0.28));
+                border: 1px solid rgba(255,255,255,0.16);
+                box-shadow: 0 24px 58px rgba(4, 15, 32, 0.26);
+                backdrop-filter: blur(24px);
+            }
+            div[data-testid="stDialog"] button[aria-label="Close"] {
+                border-radius: 999px;
+                width: 2rem;
+                height: 2rem;
+                min-width: 2rem;
+                padding: 0;
+                border: 1px solid rgba(255,255,255,0.14);
+                background: rgba(255,255,255,0.06);
+                color: rgba(242,248,255,0.82);
+                top: 0.8rem;
+                right: 0.9rem;
+            }
+            div[data-testid="stDialog"] button[aria-label="Close"]:hover {
+                background: rgba(255,255,255,0.1);
+                color: #f8fbff;
+            }
+            .forecast-dialog-shell {
+                padding-top: 0.1rem;
+            }
+            .forecast-dialog-hero {
+                display: grid;
+                grid-template-columns: minmax(0, 1.15fr) minmax(240px, 0.85fr);
+                gap: 0.8rem;
+                align-items: stretch;
+            }
+            .forecast-dialog-hero-main,
+            .forecast-dialog-hero-side,
+            .forecast-dialog-story,
+            .forecast-chart-shell,
+            .forecast-detail-grid {
+                border-radius: 22px;
+                background: rgba(255,255,255,0.065);
+                border: 1px solid rgba(255,255,255,0.08);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            }
+            .forecast-dialog-hero-main,
+            .forecast-dialog-hero-side {
+                padding: 0.95rem 1rem;
+            }
+            .forecast-dialog-kicker {
+                font-size: 0.76rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                opacity: 0.72;
+            }
+            .forecast-dialog-title {
+                margin-top: 0.25rem;
+                font-size: clamp(1.8rem, 3vw, 2.45rem);
+                font-weight: 800;
+                line-height: 1;
+            }
+            .forecast-dialog-condition {
+                margin-top: 0.45rem;
+                font-size: 0.98rem;
+                opacity: 0.9;
+            }
+            .forecast-dialog-range {
+                margin-top: 0.45rem;
+                font-size: 0.94rem;
+                opacity: 0.82;
+            }
+            .forecast-dialog-story {
+                margin-top: 0.8rem;
+                padding: 0.85rem 0.95rem;
+                line-height: 1.55;
+                font-size: 0.92rem;
+                opacity: 0.92;
+            }
+            .forecast-hero-stat-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.55rem;
+            }
+            .forecast-hero-stat {
+                padding: 0.72rem 0.8rem;
+                border-radius: 18px;
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.08);
+            }
+            .forecast-hero-stat-label,
+            .forecast-detail-stat-label {
+                font-size: 0.72rem;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                opacity: 0.66;
+            }
+            .forecast-hero-stat-value {
+                margin-top: 0.28rem;
+                font-size: 1.02rem;
+                font-weight: 700;
+            }
+            .forecast-chart-shell {
+                margin-top: 0.8rem;
+                padding: 0.85rem 0.95rem 0.75rem;
+            }
+            .forecast-chart-title {
+                font-size: 0.78rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                opacity: 0.7;
+            }
+            .forecast-chart-image {
+                width: 100%;
+                height: 220px;
+                margin-top: 0.7rem;
+                display: block;
+            }
+            .forecast-chart-empty {
+                margin-top: 0.8rem;
+                padding: 0.85rem 0.95rem;
+                font-size: 0.92rem;
+                opacity: 0.86;
+            }
+            .forecast-detail-grid {
+                margin-top: 0.8rem;
+                padding: 0.85rem 0.95rem;
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 0.55rem;
+            }
+            .forecast-detail-stat {
+                padding: 0.72rem 0.8rem;
+                border-radius: 18px;
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.08);
+            }
+            .forecast-detail-stat-value {
+                margin-top: 0.3rem;
+                font-size: 0.98rem;
+                font-weight: 700;
+            }
+            @media (max-width: 1100px) {
+                .forecast-dialog-hero {
+                    grid-template-columns: 1fr;
+                }
+                .forecast-detail-grid {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+            }
+            @media (max-width: 720px) {
+                .forecast-hero-stat-grid,
+                .forecast-detail-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            dedent(
+                f"""
+                <div class="forecast-dialog-shell">
+                    <div class="forecast-dialog-hero">
+                        <div class="forecast-dialog-hero-main">
+                            <div class="forecast-dialog-kicker">Expanded day forecast</div>
+                            <div class="forecast-dialog-title">{day['day']}</div>
+                            <div class="forecast-dialog-condition">{get_condition_icon(day['condition'])} {day['condition']}</div>
+                            <div class="forecast-dialog-range">Low {low_value}{temp_symbol} | High {high_value}{temp_symbol}</div>
+                        </div>
+                        <div class="forecast-dialog-hero-side">
+                            <div class="forecast-dialog-kicker">Key pulse</div>
+                            <div class="forecast-hero-stat-grid">{hero_stats_html}</div>
+                        </div>
+                    </div>
+                    <div class="forecast-dialog-story">
+                        Conditions stay {day['condition'].lower()} through the day with a {day['rain_chance']}% rain chance,
+                        around {format_precipitation(day['rain_total'])} of precipitation, sunrise at {day['sunrise']},
+                        sunset at {day['sunset']}, and a UV peak near {day['uv_index']}.
+                    </div>
+                    <div class="forecast-detail-grid">{detail_stats_html}</div>
+                </div>
+                """
+            ).strip(),
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(hourly_chart_html, unsafe_allow_html=True)
+
+        if st.button("Close Forecast", key=f"close_forecast_{pending_index}", use_container_width=True):
+            st.rerun()
+
+    forecast_dialog()
+
+
+# Main app flow keeps the page readable and easy to extend.
+def main():
+    st.set_page_config(page_title="Skyline Forecast", page_icon="\u2601\ufe0f", layout="wide")
+
+    initialize_session_state()
+    process_location_request()
+    process_forecast_dialog_request()
+    bootstrap_default_weather()
+    use_fahrenheit = st.session_state["temp_unit"] == TEMP_OPTIONS[1]
+    use_mph = st.session_state["speed_unit"] == "mph"
+    header_container = st.container()
+    search_container = st.container()
+
+    with search_container:
+        search_event = render_search_section()
+
+    handle_search_component_event(search_event)
+    weather_to_show, city_to_show = get_active_weather_state()
+
+    current_condition = (
+        weather_to_show["current"]["condition"]
+        if weather_to_show and weather_to_show.get("current")
+        else "Cloudy"
+    )
+    apply_theme(get_background_path(current_condition))
+
+    temp_symbol = " \u00b0F" if use_fahrenheit else " \u00b0C"
+    speed_symbol = "mph" if use_mph else "km/h"
+    with header_container:
+        render_header_section(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit)
+
+    weather_to_show, city_to_show = get_active_weather_state()
+    if not weather_to_show:
+        st.info("Search for a city to load live weather details and a 10-day forecast.")
+        return
+
+    current = weather_to_show["current"]
+    wind_speed = current["wind"]
+
+    if use_mph:
+        converted_wind = round(kmh_to_mph(wind_speed), 1)
+    else:
+        converted_wind = wind_speed
+
+    active_section = st.session_state.get("active_content_section", CONTENT_SECTIONS[0])
+    render_current_conditions_section(weather_to_show, speed_symbol, converted_wind, temp_symbol, use_fahrenheit)
+    if active_section == "Overview":
+        render_forecast_section(weather_to_show, temp_symbol, use_fahrenheit)
+    render_weather_tabbed_section(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit)
+
+
+if __name__ == "__main__":
+    main()
