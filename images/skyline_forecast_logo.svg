@@ -1,0 +1,35 @@
+<svg width="520" height="132" viewBox="0 0 520 132" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="skylinePanel" x1="12" y1="18" x2="110" y2="102" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E8F7FF" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#97B8CE" stop-opacity="0.16"/>
+    </linearGradient>
+    <linearGradient id="skylineAccent" x1="18" y1="16" x2="82" y2="84" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F3FCFF"/>
+      <stop offset="1" stop-color="#AAD1E5"/>
+    </linearGradient>
+    <linearGradient id="skylineText" x1="132" y1="20" x2="354" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F4FBFF"/>
+      <stop offset="1" stop-color="#C2DCEA"/>
+    </linearGradient>
+    <filter id="softShadow" x="0" y="0" width="520" height="132" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#091A2B" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <g filter="url(#softShadow)">
+    <rect x="8" y="16" width="100" height="100" rx="28" fill="url(#skylinePanel)" stroke="rgba(255,255,255,0.18)"/>
+    <path d="M24 84C31 78 39 76 46 70C51 66 53 60 58 55C65 48 73 44 82 44C85 44 88 44 92 45" stroke="url(#skylineAccent)" stroke-width="6" stroke-linecap="round"/>
+    <path d="M30 88H92" stroke="#EAF8FF" stroke-opacity="0.54" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M39 88V71" stroke="#D5EEFA" stroke-opacity="0.62" stroke-width="4" stroke-linecap="round"/>
+    <path d="M52 88V62" stroke="#D5EEFA" stroke-opacity="0.8" stroke-width="4.8" stroke-linecap="round"/>
+    <path d="M66 88V54" stroke="#D5EEFA" stroke-opacity="0.9" stroke-width="5.4" stroke-linecap="round"/>
+    <path d="M80 88V66" stroke="#D5EEFA" stroke-opacity="0.72" stroke-width="4.4" stroke-linecap="round"/>
+    <circle cx="84" cy="42" r="8" fill="#F8FCFF" fill-opacity="0.94"/>
+    <path d="M54 36C58 31 64 28 70 28C75 28 80 30 84 34" stroke="#F8FCFF" stroke-opacity="0.68" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <g>
+    <text x="130" y="58" fill="url(#skylineText)" font-family="'Trebuchet MS', 'Avenir Next', 'Segoe UI', sans-serif" font-size="34" font-weight="700" letter-spacing="0.16em">SKYLINE</text>
+    <text x="132" y="92" fill="#D7EAF5" font-family="'Trebuchet MS', 'Avenir Next', 'Segoe UI', sans-serif" font-size="20" font-weight="600" letter-spacing="0.34em">FORECAST</text>
+    <path d="M132 104H338" stroke="url(#skylineAccent)" stroke-opacity="0.54" stroke-width="2.2" stroke-linecap="round"/>
+  </g>
+</svg>

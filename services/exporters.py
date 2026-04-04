@@ -1,4 +1,5 @@
 import io
+import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from html import escape as xml_escape
@@ -17,7 +18,8 @@ def build_csv_export(bundle):
             escaped.append(text)
         buffer.write(",".join(escaped) + "\n")
 
-    write_row(["Skyline Forecast Export"])
+    write_row(["SKYLINE FORECAST"])
+    write_row(["Weather Export"])
     write_row(["City", bundle["city"]])
     write_row(["Range", bundle["range_label"]])
     write_row(["Generated At", bundle["generated_at"]])
@@ -111,6 +113,14 @@ def build_pdf_export(bundle):
             "ET"
         )
 
+    def draw_line(x1, top1, x2, top2, stroke_rgb, line_width=1):
+        commands.append(
+            f"{line_width:.2f} w\n"
+            f"{stroke_rgb[0]:.3f} {stroke_rgb[1]:.3f} {stroke_rgb[2]:.3f} RG\n"
+            f"{x1:.2f} {page_y(top1):.2f} m\n"
+            f"{x2:.2f} {page_y(top2):.2f} l S"
+        )
+
     def draw_wrapped_text(x, top, text, max_chars, font_name="F1", size=10, rgb=(0.2, 0.27, 0.36), line_gap=13):
         lines = wrap(_pdf_plain(text), width=max_chars) or [""]
         for index, line in enumerate(lines):
@@ -118,10 +128,18 @@ def build_pdf_export(bundle):
         return top + (len(lines) * line_gap)
 
     draw_rect(36, 34, 540, 84, (0.13, 0.25, 0.42))
-    draw_text(54, 63, "Skyline Forecast Export", font_name="F2", size=22, rgb=(1, 1, 1))
+    draw_rect(54, 52, 56, 42, (0.92, 0.97, 1.0), (0.82, 0.9, 0.96), 0.6)
+    draw_line(66, 92, 98, 92, (0.68, 0.82, 0.9), 2.2)
+    draw_line(74, 92, 74, 72, (0.72, 0.86, 0.94), 3.2)
+    draw_line(84, 92, 84, 64, (0.8, 0.91, 0.97), 4.1)
+    draw_line(94, 92, 94, 76, (0.72, 0.86, 0.94), 3.2)
+    draw_text(128, 61, "SKYLINE", font_name="F2", size=20, rgb=(1, 1, 1))
+    draw_text(128, 82, "FORECAST", font_name="F2", size=11, rgb=(0.86, 0.93, 0.98))
+    draw_text(290, 67, "Weather Export", font_name="F2", size=18, rgb=(1, 1, 1))
+    draw_line(128, 92, 210, 92, (0.82, 0.92, 0.98), 1.4)
     draw_text(
         54,
-        88,
+        105,
         f'{bundle["city"]} | {bundle["range_label"]} | Generated {bundle["generated_at"]}',
         font_name="F1",
         size=10,
@@ -129,7 +147,7 @@ def build_pdf_export(bundle):
     )
     draw_text(
         54,
-        105,
+        122,
         f'Temperature Unit: {bundle["temperature_unit"]}   Wind Unit: {bundle["wind_unit"]}',
         font_name="F1",
         size=9,
@@ -146,15 +164,15 @@ def build_pdf_export(bundle):
     card_gap = 12
     for index, (label, value) in enumerate(stat_cards):
         x_position = 36 + (index * (card_width + card_gap))
-        draw_rect(x_position, 138, card_width, 72, (0.93, 0.96, 0.99), (0.82, 0.88, 0.94), 0.8)
-        draw_text(x_position + 14, 160, label, font_name="F2", size=9, rgb=(0.32, 0.42, 0.55))
-        draw_text(x_position + 14, 185, value, font_name="F2", size=13, rgb=(0.11, 0.2, 0.31))
+        draw_rect(x_position, 154, card_width, 72, (0.93, 0.96, 0.99), (0.82, 0.88, 0.94), 0.8)
+        draw_text(x_position + 14, 176, label, font_name="F2", size=9, rgb=(0.32, 0.42, 0.55))
+        draw_text(x_position + 14, 201, value, font_name="F2", size=13, rgb=(0.11, 0.2, 0.31))
 
-    draw_rect(36, 228, 540, 108, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
-    draw_text(54, 252, "Advisory Snapshot", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    draw_rect(36, 244, 540, 108, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(54, 268, "Advisory Snapshot", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
     next_top = draw_wrapped_text(
         54,
-        276,
+        292,
         "Alerts: " + " | ".join(alert["title"] for alert in bundle["alerts"]),
         max_chars=88,
         font_name="F1",
@@ -187,7 +205,7 @@ def build_pdf_export(bundle):
         line_gap=12,
     )
 
-    table_top = 356
+    table_top = 372
     draw_rect(36, table_top, 540, 28, (0.36, 0.49, 0.65))
     draw_text(52, table_top + 18, "Selected Date Window", font_name="F2", size=12, rgb=(1, 1, 1))
 
@@ -248,6 +266,13 @@ def build_trip_plan_pdf(bundle):
     page_width = 612
     page_height = 792
     pages = []
+    point_palette = {
+        "origin": {"fill": (0.16, 0.31, 0.49), "soft": (0.9, 0.94, 0.99), "stroke": (0.26, 0.4, 0.58)},
+        "destination": {"fill": (0.89, 0.47, 0.35), "soft": (0.99, 0.93, 0.9), "stroke": (0.79, 0.38, 0.28)},
+        "outdoor": {"fill": (0.33, 0.63, 0.47), "soft": (0.9, 0.97, 0.93), "stroke": (0.23, 0.52, 0.37)},
+        "indoor": {"fill": (0.82, 0.61, 0.24), "soft": (0.99, 0.96, 0.89), "stroke": (0.68, 0.49, 0.16)},
+        "evening": {"fill": (0.45, 0.5, 0.67), "soft": (0.93, 0.94, 0.99), "stroke": (0.34, 0.39, 0.56)},
+    }
 
     def new_page():
         commands = []
@@ -285,6 +310,36 @@ def build_trip_plan_pdf(bundle):
             draw_text(page, x, top + (index * line_gap), line, font_name=font_name, size=size, rgb=rgb)
         return top + (len(lines) * line_gap)
 
+    def draw_line(page, x1, top1, x2, top2, stroke_rgb, line_width=1, dash=None):
+        dash_command = "[] 0 d"
+        if dash:
+            dash_command = f"[{dash[0]:.2f} {dash[1]:.2f}] 0 d"
+        page.append(
+            f"{line_width:.2f} w\n"
+            f"{stroke_rgb[0]:.3f} {stroke_rgb[1]:.3f} {stroke_rgb[2]:.3f} RG\n"
+            f"{dash_command}\n"
+            f"{x1:.2f} {page_y(top1):.2f} m\n"
+            f"{x2:.2f} {page_y(top2):.2f} l S"
+        )
+
+    def draw_circle(page, center_x, top_center, radius, fill_rgb, stroke_rgb=None, line_width=1):
+        kappa = 0.5522847498
+        control = radius * kappa
+        center_y = page_y(top_center)
+        path = (
+            f"{center_x + radius:.2f} {center_y:.2f} m\n"
+            f"{center_x + radius:.2f} {center_y + control:.2f} {center_x + control:.2f} {center_y + radius:.2f} {center_x:.2f} {center_y + radius:.2f} c\n"
+            f"{center_x - control:.2f} {center_y + radius:.2f} {center_x - radius:.2f} {center_y + control:.2f} {center_x - radius:.2f} {center_y:.2f} c\n"
+            f"{center_x - radius:.2f} {center_y - control:.2f} {center_x - control:.2f} {center_y - radius:.2f} {center_x:.2f} {center_y - radius:.2f} c\n"
+            f"{center_x + control:.2f} {center_y - radius:.2f} {center_x + radius:.2f} {center_y - control:.2f} {center_x + radius:.2f} {center_y:.2f} c"
+        )
+        fill = f"{fill_rgb[0]:.3f} {fill_rgb[1]:.3f} {fill_rgb[2]:.3f} rg"
+        if stroke_rgb is None:
+            page.append(f"{fill}\n{path}\nf")
+            return
+        stroke = f"{stroke_rgb[0]:.3f} {stroke_rgb[1]:.3f} {stroke_rgb[2]:.3f} RG"
+        page.append(f"{line_width:.2f} w\n{fill}\n{stroke}\n{path}\nB")
+
     def draw_info_card(page, x, top, width, height, label, value, body):
         draw_rect(page, x, top, width, height, (0.95, 0.97, 1.0), (0.82, 0.88, 0.94), 0.7)
         draw_text(page, x + 14, top + 18, label, font_name="F2", size=8, rgb=(0.36, 0.46, 0.58))
@@ -311,14 +366,47 @@ def build_trip_plan_pdf(bundle):
             line_gap=10,
         )
 
+    def draw_map_label(page, x, top, width, title, subtitle, fill_rgb, stroke_rgb):
+        draw_rect(page, x, top, width, 44, fill_rgb, stroke_rgb, 0.6)
+        draw_text(page, x + 10, top + 14, title, font_name="F2", size=8, rgb=(0.14, 0.21, 0.31))
+        draw_wrapped_text(
+            page,
+            x + 10,
+            top + 27,
+            subtitle,
+            max_chars=max(12, int((width - 20) / 4.8)),
+            font_name="F1",
+            size=7,
+            rgb=(0.28, 0.36, 0.46),
+            line_gap=8,
+        )
+
+    def simplify_location_label(value):
+        text = _pdf_plain(value)
+        primary = text.split(",")[0].strip()
+        return primary or "Destination"
+
+    pdf_from_city = simplify_location_label(bundle.get("from_city", ""))
+    pdf_to_city = simplify_location_label(bundle.get("to_city", ""))
+    has_origin = bool(bundle.get("from_city")) and bundle.get("from_city") != "Not specified"
+    route_display = f"{pdf_from_city} to {pdf_to_city}" if has_origin else f"Trip plan to {pdf_to_city}"
+
     page_one = new_page()
     draw_rect(page_one, 36, 34, 540, 92, (0.13, 0.25, 0.42))
-    draw_text(page_one, 54, 62, "Skyline Forecast Trip Plan", font_name="F2", size=22, rgb=(1, 1, 1))
+    draw_rect(page_one, 54, 52, 56, 42, (0.92, 0.97, 1.0), (0.82, 0.9, 0.96), 0.6)
+    draw_line(page_one, 66, 92, 98, 92, (0.68, 0.82, 0.9), 2.2)
+    draw_line(page_one, 74, 92, 74, 72, (0.72, 0.86, 0.94), 3.2)
+    draw_line(page_one, 84, 92, 84, 64, (0.8, 0.91, 0.97), 4.1)
+    draw_line(page_one, 94, 92, 94, 76, (0.72, 0.86, 0.94), 3.2)
+    draw_text(page_one, 128, 61, "SKYLINE", font_name="F2", size=20, rgb=(1, 1, 1))
+    draw_text(page_one, 128, 82, "FORECAST", font_name="F2", size=11, rgb=(0.86, 0.93, 0.98))
+    draw_text(page_one, 290, 67, "Trip Plan", font_name="F2", size=18, rgb=(1, 1, 1))
+    draw_line(page_one, 128, 92, 210, 92, (0.82, 0.92, 0.98), 1.4)
     route_top = draw_wrapped_text(
         page_one,
         54,
-        88,
-        bundle["route_label"],
+        105,
+        route_display,
         max_chars=68,
         font_name="F2",
         size=14,
@@ -335,12 +423,12 @@ def build_trip_plan_pdf(bundle):
         rgb=(0.86, 0.92, 0.98),
     )
 
-    draw_rect(page_one, 36, 146, 540, 96, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
-    draw_text(page_one, 54, 168, "Trip Summary", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    draw_rect(page_one, 36, 162, 540, 96, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(page_one, 54, 184, "Trip Summary", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
     draw_wrapped_text(
         page_one,
         54,
-        194,
+        210,
         bundle["overview_body"],
         max_chars=92,
         font_name="F1",
@@ -349,11 +437,15 @@ def build_trip_plan_pdf(bundle):
         line_gap=12,
     )
 
-    snapshot_cards = bundle["snapshot_cards"][:4]
+    snapshot_cards = [dict(card) for card in bundle["snapshot_cards"][:4]]
+    if snapshot_cards:
+        snapshot_cards[0]["value"] = pdf_from_city if has_origin else "Not specified"
+    if len(snapshot_cards) > 1:
+        snapshot_cards[1]["value"] = pdf_to_city
     card_width = 264
     card_height = 78
     card_gap = 12
-    snapshot_top = 262
+    snapshot_top = 278
     for index, card in enumerate(snapshot_cards):
         row_index = index // 2
         column_index = index % 2
@@ -370,10 +462,10 @@ def build_trip_plan_pdf(bundle):
             card["body"],
         )
 
-    packing_title_top = 448
+    packing_title_top = 464
     draw_text(page_one, 36, packing_title_top, "Packing Recommendations", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
     packing_cards = bundle["packing_items"][:6]
-    packing_top = 472
+    packing_top = 488
     packing_width = 264
     packing_height = 82
     for index, item in enumerate(packing_cards):
@@ -409,7 +501,7 @@ def build_trip_plan_pdf(bundle):
     page_two = new_page()
     draw_rect(page_two, 36, 34, 540, 74, (0.16, 0.29, 0.46))
     draw_text(page_two, 54, 61, "Destination Daily Forecast", font_name="F2", size=20, rgb=(1, 1, 1))
-    draw_text(page_two, 54, 86, bundle["route_label"], font_name="F1", size=9, rgb=(0.88, 0.94, 0.99))
+    draw_text(page_two, 54, 86, route_display, font_name="F1", size=9, rgb=(0.88, 0.94, 0.99))
 
     table_top = 124
     draw_rect(page_two, 36, table_top, 540, 28, (0.36, 0.49, 0.65))
@@ -473,6 +565,201 @@ def build_trip_plan_pdf(bundle):
         rgb=(0.42, 0.5, 0.6),
     )
 
+    page_three = new_page()
+    draw_rect(page_three, 36, 34, 540, 74, (0.15, 0.27, 0.44))
+    draw_text(page_three, 54, 61, "Route & Activity Visuals", font_name="F2", size=20, rgb=(1, 1, 1))
+    draw_text(page_three, 54, 86, route_display, font_name="F1", size=9, rgb=(0.88, 0.94, 0.99))
+
+    map_top = 126
+    map_height = 282
+    map_left = 36
+    map_width = 540
+    map_inner_left = map_left + 16
+    map_inner_top = map_top + 28
+    map_inner_width = map_width - 32
+    map_inner_height = map_height - 76
+
+    draw_rect(page_three, map_left, map_top, map_width, map_height, (0.95, 0.97, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(page_three, 54, 148, "Route Sketch", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    draw_wrapped_text(
+        page_three,
+        54,
+        170,
+        "A simplified travel diagram showing the route, activity touchpoints, and the destination weather rhythm for the selected dates.",
+        max_chars=84,
+        font_name="F1",
+        size=8,
+        rgb=(0.22, 0.3, 0.39),
+        line_gap=10,
+    )
+
+    draw_rect(page_three, map_inner_left, map_inner_top, map_inner_width, map_inner_height, (0.92, 0.96, 0.995), (0.84, 0.9, 0.96), 0.5)
+    draw_rect(page_three, map_inner_left + 22, map_inner_top + 22, 146, 64, (0.89, 0.95, 0.99))
+    draw_rect(page_three, map_inner_left + 258, map_inner_top + 18, 176, 82, (0.97, 0.98, 1.0))
+    draw_rect(page_three, map_inner_left + 120, map_inner_top + 122, 214, 62, (0.91, 0.97, 0.95))
+    draw_rect(page_three, map_inner_left + 372, map_inner_top + 132, 108, 42, (0.99, 0.96, 0.9))
+
+    for step in range(1, 6):
+        vertical_x = map_inner_left + (step * map_inner_width / 6)
+        horizontal_top = map_inner_top + (step * map_inner_height / 6)
+        draw_line(page_three, vertical_x, map_inner_top, vertical_x, map_inner_top + map_inner_height, (0.87, 0.91, 0.96), 0.5)
+        draw_line(page_three, map_inner_left, horizontal_top, map_inner_left + map_inner_width, horizontal_top, (0.87, 0.91, 0.96), 0.5)
+
+    draw_text(page_three, map_inner_left + map_inner_width - 18, map_inner_top + 18, "N", font_name="F2", size=8, rgb=(0.34, 0.42, 0.54))
+    draw_line(page_three, map_inner_left + map_inner_width - 22, map_inner_top + 32, map_inner_left + map_inner_width - 22, map_inner_top + 50, (0.34, 0.42, 0.54), 1.2)
+    draw_line(page_three, map_inner_left + map_inner_width - 26, map_inner_top + 36, map_inner_left + map_inner_width - 22, map_inner_top + 32, (0.34, 0.42, 0.54), 1.0)
+    draw_line(page_three, map_inner_left + map_inner_width - 18, map_inner_top + 36, map_inner_left + map_inner_width - 22, map_inner_top + 32, (0.34, 0.42, 0.54), 1.0)
+
+    route_line = bundle.get("route_line")
+    if route_line:
+        start_x = map_inner_left + (route_line["start_x"] * map_inner_width)
+        start_top = map_inner_top + (route_line["start_y"] * map_inner_height)
+        end_x = map_inner_left + (route_line["end_x"] * map_inner_width)
+        end_top = map_inner_top + (route_line["end_y"] * map_inner_height)
+        draw_line(page_three, start_x, start_top, end_x, end_top, (0.42, 0.55, 0.71), 2.2, dash=(7, 4))
+
+    label_positions = {
+        "origin": {"x": map_inner_left + 16, "top": map_inner_top + 98, "width": 92},
+        "destination": {"x": map_inner_left + 246, "top": map_inner_top + 46, "width": 92},
+        "outdoor": {"x": map_inner_left + 318, "top": map_inner_top + 8, "width": 112},
+        "indoor": {"x": map_inner_left + 302, "top": map_inner_top + 118, "width": 110},
+        "evening": {"x": map_inner_left + 278, "top": map_inner_top + 78, "width": 126},
+    }
+
+    for point in bundle.get("map_points", []):
+        palette = point_palette.get(point.get("kind"), point_palette["destination"])
+        point_x = map_inner_left + (point["x"] * map_inner_width)
+        point_top = map_inner_top + (point["y"] * map_inner_height)
+        draw_circle(page_three, point_x, point_top, 10, palette["soft"], palette["stroke"], 0.8)
+        draw_circle(page_three, point_x, point_top, 5.4, palette["fill"], palette["stroke"], 0.6)
+
+        fixed_label = label_positions.get(point.get("kind"), label_positions["destination"])
+        label_x = fixed_label["x"]
+        label_top = fixed_label["top"]
+        label_width = fixed_label["width"]
+        draw_map_label(
+            page_three,
+            label_x,
+            label_top,
+            label_width,
+            point.get("label", ""),
+            point.get("subtitle", ""),
+            palette["soft"],
+            palette["stroke"],
+        )
+        anchor_x = label_x if point_x < label_x else label_x + label_width
+        anchor_top = label_top + 22
+        draw_line(page_three, point_x, point_top, anchor_x, anchor_top, palette["stroke"], 0.6)
+
+    legend_top = map_top + map_height - 38
+    draw_rect(page_three, 52, legend_top, 508, 22, (0.96, 0.98, 1.0), (0.86, 0.9, 0.95), 0.4)
+    legend_items = [
+        ("origin", "Start"),
+        ("destination", "Destination"),
+        ("outdoor", "Outdoor window"),
+        ("indoor", "Indoor backup"),
+        ("evening", "Evening option"),
+    ]
+    legend_x = 68
+    for kind, label in legend_items:
+        palette = point_palette[kind]
+        draw_circle(page_three, legend_x, legend_top + 11, 4.2, palette["fill"], palette["stroke"], 0.5)
+        draw_text(page_three, legend_x + 10, legend_top + 14, label, font_name="F1", size=7, rgb=(0.27, 0.35, 0.45))
+        legend_x += 94
+
+    lower_top = 430
+    climate_width = 336
+    climate_height = 282
+    draw_rect(page_three, 36, lower_top, climate_width, climate_height, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(page_three, 54, lower_top + 22, "Temperature Rhythm", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    draw_wrapped_text(
+        page_three,
+        54,
+        lower_top + 44,
+        "The daily range markers highlight where the trip feels steadier and where the destination shifts more between day and night.",
+        max_chars=52,
+        font_name="F1",
+        size=8,
+        rgb=(0.22, 0.3, 0.39),
+        line_gap=10,
+    )
+
+    visual_days = bundle.get("visual_days", [])[:6]
+    if visual_days:
+        high_values = [day["high_value"] for day in visual_days]
+        low_values = [day["low_value"] for day in visual_days]
+        scale_min = min(low_values)
+        scale_max = max(high_values)
+        scale_span = max(1, scale_max - scale_min)
+        chart_left = 74
+        chart_right = 36 + climate_width - 24
+        chart_top = lower_top + 100
+        chart_bottom = lower_top + 212
+        chart_height = chart_bottom - chart_top
+
+        for guide in range(5):
+            guide_top = chart_top + (guide * chart_height / 4)
+            draw_line(page_three, chart_left, guide_top, chart_right, guide_top, (0.9, 0.93, 0.97), 0.5)
+
+        step = (chart_right - chart_left) / max(1, len(visual_days))
+        for index, day in enumerate(visual_days):
+            center_x = chart_left + (step * index) + (step / 2)
+            high_ratio = (day["high_value"] - scale_min) / scale_span
+            low_ratio = (day["low_value"] - scale_min) / scale_span
+            high_top = chart_bottom - (high_ratio * chart_height)
+            low_top = chart_bottom - (low_ratio * chart_height)
+            draw_line(page_three, center_x, high_top, center_x, low_top, (0.49, 0.67, 0.85), 5.0)
+            draw_circle(page_three, center_x, high_top, 4.8, (0.79, 0.89, 0.98), (0.55, 0.71, 0.88), 0.5)
+            draw_circle(page_three, center_x, low_top, 4.8, (0.35, 0.58, 0.79), (0.28, 0.49, 0.7), 0.5)
+            draw_text(page_three, center_x - 14, high_top - 10, day["high_text"], font_name="F1", size=6, rgb=(0.3, 0.4, 0.5))
+            draw_text(page_three, center_x - 14, low_top + 17, day["low_text"], font_name="F1", size=6, rgb=(0.3, 0.4, 0.5))
+            draw_text(page_three, center_x - 16, chart_bottom + 18, day["label"], font_name="F2", size=7, rgb=(0.19, 0.27, 0.37))
+            draw_text(page_three, center_x - 16, chart_bottom + 31, day["day"], font_name="F1", size=6, rgb=(0.34, 0.42, 0.52))
+
+        draw_text(page_three, 54, lower_top + climate_height - 18, f'Temperature range shown in {bundle.get("temperature_unit", "").strip() or "selected units"}.', font_name="F1", size=8, rgb=(0.42, 0.5, 0.6))
+
+    activity_card_left = 388
+    activity_card_width = 188
+    activity_card_height = 282
+    draw_rect(page_three, activity_card_left, lower_top, activity_card_width, activity_card_height, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(page_three, activity_card_left + 18, lower_top + 22, "Activity Windows", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    draw_wrapped_text(
+        page_three,
+        activity_card_left + 18,
+        lower_top + 44,
+        "Quick cues pulled from the destination outlook for a cleaner offline read.",
+        max_chars=26,
+        font_name="F1",
+        size=8,
+        rgb=(0.22, 0.3, 0.39),
+        line_gap=10,
+    )
+
+    activity_points = [point for point in bundle.get("map_points", []) if point.get("kind") in {"outdoor", "indoor", "evening"}][:3]
+    activity_top = lower_top + 92
+    for index, point in enumerate(activity_points):
+        palette = point_palette.get(point["kind"], point_palette["destination"])
+        block_top = activity_top + (index * 50)
+        draw_rect(page_three, activity_card_left + 14, block_top, activity_card_width - 28, 42, palette["soft"], palette["stroke"], 0.5)
+        draw_circle(page_three, activity_card_left + 30, block_top + 20, 5, palette["fill"], palette["stroke"], 0.5)
+        draw_text(page_three, activity_card_left + 42, block_top + 14, point.get("label", ""), font_name="F2", size=8, rgb=(0.14, 0.21, 0.31))
+        draw_text(page_three, activity_card_left + 42, block_top + 28, point.get("subtitle", ""), font_name="F1", size=7, rgb=(0.28, 0.36, 0.46))
+
+    summary_top = lower_top + activity_card_height - 64
+    draw_rect(page_three, activity_card_left + 14, summary_top, activity_card_width - 28, 46, (0.93, 0.96, 0.99), (0.84, 0.9, 0.96), 0.5)
+    draw_text(page_three, activity_card_left + 26, summary_top + 15, "Planner Focus", font_name="F2", size=8, rgb=(0.29, 0.39, 0.5))
+    draw_wrapped_text(
+        page_three,
+        activity_card_left + 26,
+        summary_top + 28,
+        f"Use page one for current conditions and page two for the full day-by-day forecast.",
+        max_chars=26,
+        font_name="F1",
+        size=7,
+        rgb=(0.34, 0.42, 0.52),
+        line_gap=8,
+    )
+
     content_streams = ["\n".join(page).encode("latin-1", errors="replace") for page in pages]
     return _build_multi_page_pdf_bytes(content_streams, page_width, page_height)
 
@@ -497,7 +784,7 @@ def _build_overview_sheet_xml(bundle):
         ref = f"{_xlsx_column_name(column_index)}{row_index}"
         row_cells.setdefault(row_index, []).append((column_index, _xlsx_inline_cell(ref, value, style_id)))
 
-    add_cell(1, 1, "Skyline Forecast Export", 1)
+    add_cell(1, 1, "SKYLINE FORECAST", 1)
     merged_ranges.append("A1:J1")
     add_cell(2, 1, f'{bundle["city"]} | {bundle["range_label"]} | Generated {bundle["generated_at"]}', 2)
     merged_ranges.append("A2:J2")
@@ -601,7 +888,7 @@ def _build_forecast_sheet_xml(bundle):
         ref = f"{_xlsx_column_name(column_index)}{row_index}"
         row_cells.setdefault(row_index, []).append((column_index, _xlsx_inline_cell(ref, value, style_id)))
 
-    add_cell(1, 1, "Skyline Forecast Export", 1)
+    add_cell(1, 1, "SKYLINE FORECAST", 1)
     merged_ranges.append("A1:J1")
     add_cell(2, 1, f'{bundle["city"]} | {bundle["range_label"]} forecast breakdown', 2)
     merged_ranges.append("A2:J2")
@@ -797,7 +1084,9 @@ def _build_styles_xml():
 
 
 def _pdf_plain(text):
-    return str(text).replace("\r", " ").replace("\n", " ").strip()
+    normalized = unicodedata.normalize("NFKD", str(text))
+    latin_text = normalized.encode("latin-1", "ignore").decode("latin-1")
+    return latin_text.replace("\r", " ").replace("\n", " ").strip()
 
 
 def _pdf_escape(text):
