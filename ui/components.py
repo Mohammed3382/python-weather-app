@@ -1,6 +1,7 @@
 import base64
+import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
 from textwrap import dedent
@@ -28,9 +29,636 @@ CONDITION_ICON_MAP = {
     "Foggy": "\U0001f32b\ufe0f",
 }
 
+SKY_PHASE_STYLE_MAP = {
+    "night": {
+        "image": "images/night.png",
+        "body": "#0b1a2c",
+        "top": "rgba(7, 18, 34, 0.74)",
+        "bottom": "rgba(17, 45, 74, 0.82)",
+        "horizon": "rgba(104, 138, 186, 0.24)",
+        "glow": "rgba(218, 232, 255, 0.14)",
+        "glow_position": "78% 18%",
+    },
+    "sunrise": {
+        "image": "images/sunrise.png",
+        "body": "#243753",
+        "top": "rgba(52, 72, 108, 0.48)",
+        "bottom": "rgba(245, 171, 122, 0.44)",
+        "horizon": "rgba(255, 209, 147, 0.26)",
+        "glow": "rgba(255, 216, 168, 0.28)",
+        "glow_position": "18% 20%",
+    },
+    "morning": {
+        "image": "images/morning.png",
+        "body": "#324765",
+        "top": "rgba(58, 92, 136, 0.40)",
+        "bottom": "rgba(194, 222, 249, 0.24)",
+        "horizon": "rgba(255, 234, 193, 0.16)",
+        "glow": "rgba(255, 237, 192, 0.20)",
+        "glow_position": "22% 16%",
+    },
+    "day": {
+        "image": "images/sunny.jpg",
+        "body": "#415a78",
+        "top": "rgba(84, 121, 168, 0.34)",
+        "bottom": "rgba(214, 232, 250, 0.18)",
+        "horizon": "rgba(245, 250, 255, 0.12)",
+        "glow": "rgba(255, 242, 209, 0.18)",
+        "glow_position": "18% 14%",
+    },
+    "twilight": {
+        "image": "images/sunset.png",
+        "body": "#2a3551",
+        "top": "rgba(54, 66, 98, 0.54)",
+        "bottom": "rgba(149, 116, 133, 0.30)",
+        "horizon": "rgba(219, 170, 143, 0.18)",
+        "glow": "rgba(214, 184, 160, 0.18)",
+        "glow_position": "82% 18%",
+    },
+    "sunset": {
+        "image": "images/sunset.png",
+        "body": "#35415c",
+        "top": "rgba(78, 93, 135, 0.48)",
+        "bottom": "rgba(232, 146, 108, 0.38)",
+        "horizon": "rgba(255, 196, 144, 0.24)",
+        "glow": "rgba(255, 197, 138, 0.24)",
+        "glow_position": "80% 18%",
+    },
+    "evening": {
+        "image": "images/evening.png",
+        "body": "#202f47",
+        "top": "rgba(38, 53, 81, 0.58)",
+        "bottom": "rgba(92, 118, 159, 0.30)",
+        "horizon": "rgba(153, 171, 204, 0.16)",
+        "glow": "rgba(186, 208, 245, 0.14)",
+        "glow_position": "82% 18%",
+    },
+}
+
+WEATHER_STYLE_MAP = {
+    "Sunny": {
+        "tint_top": "rgba(255, 255, 255, 0.02)",
+        "tint_bottom": "rgba(255, 209, 134, 0.04)",
+        "texture": None,
+        "texture_opacity": 0.0,
+        "texture_blend": "normal",
+    },
+    "Cloudy": {
+        "tint_top": "rgba(88, 113, 145, 0.16)",
+        "tint_bottom": "rgba(45, 70, 98, 0.22)",
+        "texture": "images/cloudy.jpg",
+        "texture_opacity": 0.075,
+        "texture_blend": "soft-light",
+    },
+    "Rainy": {
+        "tint_top": "rgba(34, 62, 96, 0.22)",
+        "tint_bottom": "rgba(11, 28, 50, 0.30)",
+        "texture": "images/rainy.jpg",
+        "texture_opacity": 0.13,
+        "texture_blend": "soft-light",
+    },
+    "Snowy": {
+        "tint_top": "rgba(201, 224, 255, 0.10)",
+        "tint_bottom": "rgba(117, 151, 191, 0.16)",
+        "texture": "images/snowy.jpg",
+        "texture_opacity": 0.11,
+        "texture_blend": "screen",
+    },
+    "Thunderstorm": {
+        "tint_top": "rgba(16, 28, 52, 0.34)",
+        "tint_bottom": "rgba(4, 12, 24, 0.42)",
+        "texture": "images/thunderstorm.png",
+        "texture_opacity": 0.22,
+        "texture_blend": "overlay",
+    },
+    "Foggy": {
+        "tint_top": "rgba(194, 207, 220, 0.14)",
+        "tint_bottom": "rgba(120, 140, 160, 0.20)",
+        "texture": "images/foggy.png",
+        "texture_opacity": 0.14,
+        "texture_blend": "screen",
+    },
+}
+
 
 def get_background_path(condition):
     return BACKGROUND_MAP.get(condition, "images/default.png")
+
+
+def _clamp(value, minimum, maximum):
+    return max(minimum, min(maximum, value))
+
+
+def _stable_variant_index(parts, variant_count):
+    normalized = "|".join(str(part or "") for part in parts)
+    digest = hashlib.md5(normalized.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % max(1, variant_count)
+
+
+def _get_weather_local_datetime(weather):
+    if not weather:
+        return datetime.now()
+
+    time_info = weather.get("time") or {}
+    location = weather.get("location") or {}
+    timezone_name = time_info.get("timezone") or location.get("timezone")
+    raw_value = time_info.get("local_datetime_iso") or time_info.get("observed_at") or ""
+
+    if raw_value:
+        try:
+            parsed = datetime.fromisoformat(raw_value)
+            if parsed.tzinfo is None and timezone_name:
+                try:
+                    return parsed.replace(tzinfo=ZoneInfo(timezone_name))
+                except ZoneInfoNotFoundError:
+                    return parsed
+            return parsed
+        except ValueError:
+            pass
+
+    if timezone_name:
+        try:
+            return datetime.now(ZoneInfo(timezone_name))
+        except ZoneInfoNotFoundError:
+            pass
+
+    return datetime.now()
+
+
+def _parse_clock_value(clock_label, reference_date, timezone_info):
+    if not clock_label or clock_label == "--":
+        return None
+
+    try:
+        parsed_time = datetime.strptime(clock_label.strip(), "%I:%M %p").time()
+    except ValueError:
+        return None
+
+    combined = datetime.combine(reference_date, parsed_time)
+    if timezone_info is not None:
+        combined = combined.replace(tzinfo=timezone_info)
+    return combined
+
+
+def _get_sun_window(weather, local_now):
+    forecast = weather.get("forecast") or []
+    if not forecast:
+        return None, None
+
+    local_day_key = local_now.date().isoformat()
+    forecast_today = next((day for day in forecast if day.get("date") == local_day_key), forecast[0])
+    timezone_info = local_now.tzinfo
+    sunrise = _parse_clock_value(forecast_today.get("sunrise"), local_now.date(), timezone_info)
+    sunset = _parse_clock_value(forecast_today.get("sunset"), local_now.date(), timezone_info)
+    return sunrise, sunset
+
+
+def _get_sky_phase(local_now, sunrise, sunset):
+    fallback_hour = local_now.hour + (local_now.minute / 60)
+    if sunrise and sunset:
+        sunrise_start = sunrise - timedelta(minutes=40)
+        sunrise_end = sunrise + timedelta(minutes=55)
+        sunset_start = sunset - timedelta(minutes=32)
+        sunset_end = sunset + timedelta(minutes=14)
+        twilight_end = sunset + timedelta(minutes=46)
+        evening_end = sunset + timedelta(minutes=105)
+        late_afternoon_cutoff = local_now.replace(hour=16, minute=30, second=0, microsecond=0)
+
+        if sunrise_start <= local_now <= sunrise_end:
+            return "sunrise"
+        if sunset_start <= local_now <= sunset_end:
+            return "sunset"
+        if sunset_end < local_now <= twilight_end:
+            return "twilight"
+        if local_now < sunrise_start:
+            return "night"
+        if local_now > twilight_end:
+            return "evening" if local_now < evening_end else "night"
+        if local_now < local_now.replace(hour=11, minute=0, second=0, microsecond=0):
+            return "morning"
+        if local_now < late_afternoon_cutoff:
+            return "day"
+        return "evening"
+
+    if fallback_hour < 5:
+        return "night"
+    if fallback_hour < 7:
+        return "sunrise"
+    if fallback_hour < 11:
+        return "morning"
+    if fallback_hour < 17:
+        return "day"
+    if fallback_hour < 19.5:
+        return "sunset"
+    if fallback_hour < 22:
+        return "evening"
+    return "night"
+
+
+def _build_star_layers(star_opacity):
+    if star_opacity <= 0:
+        return []
+
+    return [
+        f"radial-gradient(circle at 12% 18%, rgba(255,255,255,{star_opacity:.3f}) 0 1.2px, transparent 2px)",
+        f"radial-gradient(circle at 28% 32%, rgba(255,255,255,{star_opacity * 0.82:.3f}) 0 1px, transparent 1.8px)",
+        f"radial-gradient(circle at 46% 12%, rgba(255,255,255,{star_opacity * 0.72:.3f}) 0 1.2px, transparent 2px)",
+        f"radial-gradient(circle at 62% 26%, rgba(255,255,255,{star_opacity * 0.90:.3f}) 0 1px, transparent 1.8px)",
+        f"radial-gradient(circle at 78% 20%, rgba(255,255,255,{star_opacity * 0.75:.3f}) 0 1.1px, transparent 1.9px)",
+        f"radial-gradient(circle at 88% 34%, rgba(255,255,255,{star_opacity * 0.64:.3f}) 0 1px, transparent 1.8px)",
+    ]
+
+
+def _svg_data_uri(svg_markup):
+    return f"data:image/svg+xml;base64,{base64.b64encode(svg_markup.encode('utf-8')).decode()}"
+
+
+def _build_translucent_image_layer(image_path, opacity):
+    if not image_path or opacity <= 0:
+        return None
+
+    encoded_image = encode_image(image_path)
+    image_mime = get_image_mime_type(image_path)
+    blur_amount = 0.8 if "cloudy" in str(image_path).lower() else 0.5 if "rainy" in str(image_path).lower() else 0.35
+    svg = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+        <defs>
+            <filter id="textureBlur">
+                <feGaussianBlur stdDeviation="{blur_amount:.2f}"/>
+            </filter>
+        </defs>
+        <image href="data:{image_mime};base64,{encoded_image}" width="1600" height="900" opacity="{opacity:.3f}" preserveAspectRatio="xMidYMid slice" filter="url(#textureBlur)"/>
+    </svg>
+    """
+    return f'url("{_svg_data_uri(svg)}") center/cover fixed'
+
+
+def _get_nearest_hourly_snapshot(weather, local_now):
+    forecast = (weather or {}).get("forecast") or []
+    if not forecast:
+        return None
+
+    local_reference = local_now.replace(tzinfo=None)
+    candidates = []
+    for day in forecast[:2]:
+        for point in day.get("hourly") or []:
+            iso_value = point.get("time_iso")
+            if not iso_value:
+                continue
+            try:
+                point_dt = datetime.fromisoformat(iso_value).replace(tzinfo=None)
+            except ValueError:
+                continue
+            delta_seconds = abs((point_dt - local_reference).total_seconds())
+            candidates.append((delta_seconds, point))
+
+    if not candidates:
+        return None
+
+    nearest_delta, nearest_point = min(candidates, key=lambda item: item[0])
+    return nearest_point if nearest_delta <= 7200 else None
+
+
+def _build_cloud_layers(phase, cloud_cover, variant_index=0):
+    if cloud_cover <= 8:
+        return []
+
+    density = _clamp(cloud_cover / 100, 0.0, 1.0)
+    if phase in {"night", "evening"}:
+        cloud_color = f"rgba(183, 202, 232, {0.14 + density * 0.14:.3f})"
+        edge_color = f"rgba(66, 88, 120, {0.10 + density * 0.10:.3f})"
+    elif phase in {"sunrise", "sunset"}:
+        cloud_color = f"rgba(244, 206, 185, {0.12 + density * 0.12:.3f})"
+        edge_color = f"rgba(128, 103, 118, {0.08 + density * 0.08:.3f})"
+    else:
+        cloud_color = f"rgba(240, 247, 255, {0.10 + density * 0.12:.3f})"
+        edge_color = f"rgba(122, 151, 183, {0.08 + density * 0.07:.3f})"
+
+    blur = 30 + int(density * 30)
+    cloud_profiles = [
+        {
+            "specs": [
+                (170, 148, 260, 84, 0.88),
+                (500, 128, 320, 90, 0.78),
+                (860, 150, 300, 84, 0.84),
+                (1185, 144, 264, 78, 0.70),
+                (1410, 184, 230, 68, 0.64),
+                (340, 244, 236, 68, 0.44),
+                (1030, 246, 254, 74, 0.40),
+                (678, 228, 220, 64, 0.34),
+            ],
+            "wash_height": 320,
+        },
+        {
+            "specs": [
+                (120, 118, 218, 70, 0.74),
+                (370, 190, 244, 74, 0.56),
+                (700, 122, 350, 94, 0.82),
+                (1060, 168, 262, 78, 0.64),
+                (1375, 126, 248, 72, 0.68),
+                (510, 264, 206, 60, 0.34),
+                (1220, 244, 224, 64, 0.32),
+            ],
+            "wash_height": 290,
+        },
+        {
+            "specs": [
+                (190, 212, 270, 80, 0.58),
+                (530, 218, 336, 88, 0.64),
+                (930, 196, 354, 96, 0.72),
+                (1315, 220, 286, 84, 0.56),
+                (360, 112, 206, 62, 0.32),
+                (1080, 120, 218, 66, 0.36),
+                (1470, 148, 182, 54, 0.28),
+            ],
+            "wash_height": 260,
+        },
+        {
+            "specs": [
+                (150, 150, 240, 74, 0.82),
+                (430, 118, 276, 82, 0.72),
+                (760, 172, 252, 74, 0.60),
+                (1010, 124, 310, 92, 0.82),
+                (1320, 170, 246, 74, 0.58),
+                (270, 270, 196, 56, 0.26),
+                (890, 262, 204, 58, 0.30),
+                (1450, 236, 170, 48, 0.22),
+            ],
+            "wash_height": 300,
+        },
+    ]
+    selected_profile = cloud_profiles[variant_index % len(cloud_profiles)]
+    cloud_specs = selected_profile["specs"]
+    visible_count = 5 if density < 0.34 else 6 if density < 0.58 else 7 if density < 0.82 else len(cloud_specs)
+    cloud_markup = []
+    for cx, cy, rx, ry, opacity in cloud_specs[:visible_count]:
+        alpha = opacity * (0.52 + density * 0.44)
+        cloud_markup.append(
+            f"""
+            <g opacity="{alpha:.3f}">
+                <ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" fill="{cloud_color}" filter="url(#cloudBlur)"/>
+                <ellipse cx="{cx - (rx * 0.16):.1f}" cy="{cy + 10}" rx="{rx * 0.72:.1f}" ry="{ry * 0.78:.1f}" fill="{edge_color}" filter="url(#cloudBlurSoft)"/>
+                <ellipse cx="{cx + (rx * 0.18):.1f}" cy="{cy - 4}" rx="{rx * 0.52:.1f}" ry="{ry * 0.64:.1f}" fill="{cloud_color}" filter="url(#cloudBlurSoft)"/>
+            </g>
+            """
+        )
+    svg = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMin slice">
+        <defs>
+            <linearGradient id="topWash" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="{cloud_color}" stop-opacity="{0.10 + density * 0.10:.3f}"/>
+                <stop offset="100%" stop-color="{edge_color}" stop-opacity="0"/>
+            </linearGradient>
+            <filter id="cloudBlur" x="-25%" y="-25%" width="150%" height="150%">
+                <feGaussianBlur stdDeviation="{blur}"/>
+            </filter>
+            <filter id="cloudBlurSoft" x="-25%" y="-25%" width="150%" height="150%">
+                <feGaussianBlur stdDeviation="{max(12, blur - 12)}"/>
+            </filter>
+        </defs>
+        <rect width="1600" height="900" fill="transparent"/>
+        <rect width="1600" height="{selected_profile['wash_height']}" fill="url(#topWash)"/>
+        {''.join(cloud_markup)}
+    </svg>
+    """
+    return [
+        f'url("{_svg_data_uri(svg)}") center top / cover no-repeat',
+        f"linear-gradient(180deg, rgba(255,255,255,{0.012 + density * 0.022:.3f}) 0%, rgba(255,255,255,0) 45%)",
+    ]
+
+
+def _build_weather_overlay_layers(condition, intensity, phase, variant_index=0):
+    overlay_intensity = _clamp(intensity, 0.0, 1.0)
+    if overlay_intensity <= 0:
+        return []
+
+    if condition == "Rainy":
+        rain_variants = [
+            {"count": 34, "x_step": 43, "y_step": 59, "dx": 26, "base": 46, "step": 14},
+            {"count": 40, "x_step": 37, "y_step": 47, "dx": 18, "base": 38, "step": 11},
+            {"count": 28, "x_step": 52, "y_step": 61, "dx": 34, "base": 58, "step": 18},
+        ]
+        rain = rain_variants[variant_index % len(rain_variants)]
+        stroke_alpha = 0.12 + overlay_intensity * 0.18
+        drops = []
+        for index in range(rain["count"]):
+            x = 40 + ((index * rain["x_step"]) % 1520)
+            y = -120 + ((index * rain["y_step"]) % 760)
+            length = rain["base"] + (index % 5) * rain["step"]
+            drops.append(
+                f'<line x1="{x}" y1="{y}" x2="{x - rain["dx"]}" y2="{y + length}" stroke="rgba(212,228,255,{stroke_alpha:.3f})" stroke-width="{1.0 + (index % 3) * 0.34:.2f}" stroke-linecap="round"/>'
+            )
+        svg = f"""
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
+            <defs>
+                <filter id="rainBlur"><feGaussianBlur stdDeviation="{0.24 + overlay_intensity * 0.5:.2f}"/></filter>
+            </defs>
+            <g filter="url(#rainBlur)">{''.join(drops)}</g>
+        </svg>
+        """
+        return [
+            f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
+            f"linear-gradient(180deg, rgba(157, 188, 232, {0.035 + overlay_intensity * 0.042:.3f}) 0%, rgba(255,255,255,0) 54%)",
+        ]
+
+    if condition == "Thunderstorm":
+        storm_variants = [
+            {"count": 34, "x_step": 37, "y_step": 53, "dx": 30, "base": 52, "step": 18, "lightning": True},
+            {"count": 40, "x_step": 41, "y_step": 57, "dx": 36, "base": 66, "step": 20, "lightning": False},
+            {"count": 36, "x_step": 35, "y_step": 49, "dx": 24, "base": 44, "step": 14, "lightning": True},
+        ]
+        storm = storm_variants[variant_index % len(storm_variants)]
+        stroke_alpha = 0.16 + overlay_intensity * 0.18
+        drops = []
+        for index in range(storm["count"]):
+            x = 34 + ((index * storm["x_step"]) % 1530)
+            y = -140 + ((index * storm["y_step"]) % 760)
+            length = storm["base"] + (index % 4) * storm["step"]
+            drops.append(
+                f'<line x1="{x}" y1="{y}" x2="{x - storm["dx"]}" y2="{y + length}" stroke="rgba(228,236,255,{stroke_alpha:.3f})" stroke-width="{1.2 + (index % 3) * 0.44:.2f}" stroke-linecap="round"/>'
+            )
+        lightning = ""
+        if storm["lightning"]:
+            lightning = '<polyline points="1240,110 1182,242 1236,242 1176,392" fill="none" stroke="rgba(248,250,255,0.42)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>'
+        svg = f"""
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
+            <defs>
+                <filter id="stormBlur"><feGaussianBlur stdDeviation="{0.32 + overlay_intensity * 0.54:.2f}"/></filter>
+            </defs>
+            <g filter="url(#stormBlur)">{''.join(drops)}</g>
+            {lightning}
+        </svg>
+        """
+        return [
+            f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
+            f"radial-gradient(circle at 78% 20%, rgba(240,245,255,{0.03 + overlay_intensity * 0.06:.3f}) 0%, rgba(255,255,255,0) 12%)",
+        ]
+
+    if condition == "Snowy":
+        snow_variants = [
+            {"count": 62, "x_step": 57, "y_step": 71, "radius": 0.52},
+            {"count": 78, "x_step": 49, "y_step": 63, "radius": 0.42},
+            {"count": 54, "x_step": 67, "y_step": 79, "radius": 0.68},
+        ]
+        snow = snow_variants[variant_index % len(snow_variants)]
+        flake_alpha = 0.20 + overlay_intensity * 0.18
+        flakes = []
+        for index in range(snow["count"]):
+            x = 28 + ((index * snow["x_step"]) % 1540)
+            y = 22 + ((index * snow["y_step"]) % 860)
+            radius = 0.9 + (index % 4) * snow["radius"]
+            flakes.append(
+                f'<circle cx="{x}" cy="{y}" r="{radius:.2f}" fill="rgba(255,255,255,{flake_alpha - (index % 3) * 0.05:.3f})"/>'
+            )
+        svg = f"""
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
+            <defs>
+                <filter id="snowBlur"><feGaussianBlur stdDeviation="{0.22 + overlay_intensity * 0.28:.2f}"/></filter>
+            </defs>
+            <g filter="url(#snowBlur)">{''.join(flakes)}</g>
+        </svg>
+        """
+        return [
+            f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
+            f"linear-gradient(180deg, rgba(226,236,255,{0.025 + overlay_intensity * 0.035:.3f}) 0%, rgba(255,255,255,0) 55%)",
+        ]
+
+    if condition == "Foggy":
+        fog_variants = [
+            [(320, 650, 360, 96, 0.72), (890, 610, 420, 110, 0.78), (1320, 690, 310, 88, 0.64)],
+            [(260, 620, 410, 118, 0.68), (760, 570, 470, 122, 0.72), (1280, 640, 360, 96, 0.58)],
+            [(360, 700, 320, 90, 0.62), (920, 640, 390, 108, 0.70), (1380, 600, 280, 78, 0.48)],
+        ]
+        fog_variant = fog_variants[variant_index % len(fog_variants)]
+        fog_alpha = 0.06 + overlay_intensity * 0.08
+        svg = f"""
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
+            <defs>
+                <filter id="fogBlur"><feGaussianBlur stdDeviation="{22 + overlay_intensity * 18:.1f}"/></filter>
+            </defs>
+            <g filter="url(#fogBlur)">
+                {''.join(
+                    f'<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" fill="rgba(223,232,242,{fog_alpha * alpha:.3f})"/>'
+                    for cx, cy, rx, ry, alpha in fog_variant
+                )}
+            </g>
+        </svg>
+        """
+        return [
+            f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
+            f"linear-gradient(180deg, rgba(228,236,245,{fog_alpha:.3f}) 0%, rgba(214,226,238,{fog_alpha * 0.45:.3f}) 36%, rgba(255,255,255,0) 72%)",
+        ]
+
+    if condition == "Cloudy" and phase in {"night", "evening"}:
+        return [
+            f"linear-gradient(180deg, rgba(110,128,158,{0.04 + overlay_intensity * 0.05:.3f}) 0%, rgba(255,255,255,0) 48%)",
+        ]
+
+    return []
+
+
+def get_background_profile(weather):
+    local_now = _get_weather_local_datetime(weather)
+    current = (weather or {}).get("current") or {}
+    hourly_snapshot = _get_nearest_hourly_snapshot(weather, local_now) or {}
+    condition = hourly_snapshot.get("condition") or current.get("condition") or "Cloudy"
+    cloud_cover = int(round(hourly_snapshot.get("cloud_cover", current.get("cloud_cover", 0)) or 0))
+    precipitation = float(
+        max(
+            current.get("precipitation", 0) or 0,
+            hourly_snapshot.get("rain_total", 0) or 0,
+        )
+    )
+    rain_chance = int(round(hourly_snapshot.get("rain_chance", 0) or 0))
+    temperature = float(hourly_snapshot.get("temperature", current.get("temperature", 0)) or 0)
+
+    visual_condition = condition
+    if condition in {"Rainy", "Cloudy"} and temperature <= 1 and max(rain_chance, precipitation * 100) >= 18:
+        visual_condition = "Snowy"
+
+    variant_seed = [
+        (weather or {}).get("resolved_city"),
+        (weather or {}).get("time", {}).get("local_date"),
+        (weather or {}).get("time", {}).get("local_time"),
+        visual_condition,
+    ]
+    sunrise, sunset = _get_sun_window(weather or {}, local_now)
+    phase = _get_sky_phase(local_now, sunrise, sunset)
+    phase_style = SKY_PHASE_STYLE_MAP.get(phase, SKY_PHASE_STYLE_MAP["day"])
+    weather_style = WEATHER_STYLE_MAP.get(visual_condition, WEATHER_STYLE_MAP["Cloudy"])
+    cloud_variant_index = _stable_variant_index(variant_seed + [phase, "clouds"], 4)
+    weather_variant_index = _stable_variant_index(variant_seed + [phase, "weather"], 3)
+
+    cloud_factor = _clamp(cloud_cover / 100, 0.0, 1.0)
+    precipitation_factor = _clamp(precipitation / 2.0, 0.0, 1.0)
+    atmospheric_weight = max(cloud_factor, precipitation_factor)
+
+    precipitation_intensity = _clamp(max(precipitation / 1.2, rain_chance / 100), 0.0, 1.0)
+    cloud_layers = _build_cloud_layers(phase, cloud_cover, cloud_variant_index)
+    weather_overlay_layers = _build_weather_overlay_layers(
+        visual_condition,
+        precipitation_intensity if visual_condition in {"Rainy", "Thunderstorm", "Snowy"} else atmospheric_weight,
+        phase,
+        weather_variant_index,
+    )
+    weather_overlay_opacity = 0.0
+    if weather_overlay_layers:
+        weather_overlay_opacity = round(
+            _clamp(weather_style["texture_opacity"] + (atmospheric_weight * 0.20), 0.08, 0.42),
+            3,
+        )
+
+    star_opacity = 0.0
+    if phase in {"night", "evening"} and condition in {"Sunny", "Cloudy"}:
+        star_opacity = _clamp((1 - cloud_factor) * (0.24 if condition == "Sunny" else 0.07), 0.0, 0.24)
+
+    effect_layers = [
+        f"radial-gradient(circle at {phase_style['glow_position']}, {phase_style['glow']} 0%, rgba(255,255,255,0) 26%)",
+        f"radial-gradient(circle at 50% 86%, {phase_style['horizon']} 0%, rgba(255,255,255,0) 58%)",
+    ]
+    effect_layers.extend(_build_star_layers(star_opacity))
+
+    texture_gradient = (
+        f"linear-gradient(180deg, {weather_style['tint_top']} 0%, {weather_style['tint_bottom']} 100%)"
+    )
+    day_dim_strength = 0.0
+    if phase in {"day", "morning"}:
+        day_dim_strength = 0.065 if visual_condition == "Sunny" else 0.085
+    elif phase in {"sunrise", "sunset", "twilight"}:
+        day_dim_strength = 0.04
+    dim_layer = (
+        f"linear-gradient(180deg, rgba(10, 16, 28, {day_dim_strength:.3f}) 0%, rgba(10, 16, 28, {day_dim_strength * 0.6:.3f}) 100%)"
+        if day_dim_strength > 0
+        else None
+    )
+
+    base_layers = []
+    if dim_layer:
+        base_layers.append(dim_layer)
+    base_layers.extend(
+        [
+            f"linear-gradient(180deg, {phase_style['top']} 0%, {phase_style['bottom']} 100%)",
+            texture_gradient,
+        ]
+    )
+    return {
+        "base_image_path": phase_style["image"],
+        "texture_image_path": weather_style["texture"],
+        "texture_opacity": round(
+            _clamp(weather_style["texture_opacity"] + (atmospheric_weight * 0.08), 0.0, 0.26),
+            3,
+        ) if weather_style["texture"] else 0.0,
+        "texture_blend_mode": weather_style["texture_blend"],
+        "base_layers": base_layers,
+        "effect_layers": effect_layers,
+        "atmosphere_layers": cloud_layers,
+        "weather_overlay_layers": weather_overlay_layers,
+        "weather_overlay_opacity": weather_overlay_opacity,
+        "weather_overlay_blend_mode": "screen" if visual_condition in {"Snowy", "Foggy"} else "soft-light",
+        "has_dim_layer": bool(dim_layer),
+        "phase_key": phase,
+        "background_color": phase_style["body"],
+    }
 
 
 def get_condition_icon(condition):
@@ -113,9 +741,62 @@ def get_weather_local_time_display(weather):
     }
 
 
-def apply_theme(background_path):
-    encoded_background = encode_image(background_path)
-    background_mime = get_image_mime_type(background_path)
+def apply_theme(background_source):
+    if isinstance(background_source, dict):
+        profile = background_source
+    else:
+        profile = {
+            "base_image_path": background_source,
+            "texture_image_path": None,
+            "texture_opacity": 0.0,
+            "texture_blend_mode": "normal",
+            "base_layers": [
+                "linear-gradient(180deg, rgba(8, 31, 58, 0.50), rgba(15, 53, 88, 0.58))",
+            ],
+            "effect_layers": [],
+            "atmosphere_layers": [],
+            "weather_overlay_layers": [],
+            "weather_overlay_opacity": 0.0,
+            "weather_overlay_blend_mode": "normal",
+            "background_color": "#102741",
+        }
+
+    base_image_path = profile["base_image_path"]
+    background_image_layer = None
+    if base_image_path:
+        encoded_background = encode_image(base_image_path)
+        background_mime = get_image_mime_type(base_image_path)
+        background_image_layer = f'url("data:{background_mime};base64,{encoded_background}") center/cover fixed'
+
+    base_layers = list(profile.get("base_layers") or [])
+    atmosphere_layers = list(profile.get("atmosphere_layers") or [])
+    effect_layers = list(profile.get("effect_layers") or [])
+    weather_overlay_layers = list(profile.get("weather_overlay_layers") or [])
+    texture_layer = _build_translucent_image_layer(
+        profile.get("texture_image_path"),
+        float(profile.get("texture_opacity", 0.0) or 0.0),
+    )
+    composed_background_layers = weather_overlay_layers.copy()
+    background_blend_modes = [profile.get("weather_overlay_blend_mode", "soft-light")] * len(weather_overlay_layers)
+    if texture_layer:
+        composed_background_layers.append(texture_layer)
+        background_blend_modes.append(profile.get("texture_blend_mode", "soft-light"))
+    composed_background_layers.extend(atmosphere_layers)
+    atmosphere_blend = "screen" if profile.get("phase_key") in {"night", "evening", "twilight"} else "soft-light"
+    background_blend_modes.extend([atmosphere_blend] * len(atmosphere_layers))
+    composed_background_layers.extend(effect_layers)
+    background_blend_modes.extend(["screen"] * len(effect_layers))
+    composed_background_layers.extend(base_layers)
+    if base_layers:
+        if profile.get("has_dim_layer"):
+            background_blend_modes.extend(["multiply"] + ["normal"] * (len(base_layers) - 1))
+        else:
+            background_blend_modes.extend(["normal"] * len(base_layers))
+    if background_image_layer:
+        composed_background_layers.append(background_image_layer)
+        background_blend_modes.append("normal")
+    base_background_value = ",\n                ".join(composed_background_layers)
+    background_blend_value = ", ".join(background_blend_modes)
     st.markdown(
         f"""
         <style>
@@ -187,12 +868,13 @@ def apply_theme(background_path):
         }}
         .stApp {{
             background:
-                linear-gradient(180deg, rgba(8, 31, 58, 0.50), rgba(15, 53, 88, 0.58)),
-                url("data:{background_mime};base64,{encoded_background}") center/cover fixed;
+                {base_background_value};
+            background-blend-mode: {background_blend_value};
+            background-color: {profile.get("background_color", "#102741")};
             color: #eef8ff;
         }}
         html, body {{
-            background: #102741;
+            background: {profile.get("background_color", "#102741")};
         }}
         .stApp [data-testid="stHeader"] {{
             background: transparent;
@@ -1173,6 +1855,10 @@ def apply_theme(background_path):
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 0.75rem;
+        }}
+        .intel-alert-banner-grid > .intel-alert-banner-item:only-child {{
+            grid-column: 1 / -1;
+            width: 100%;
         }}
         .intel-alert-banner-item {{
             display: flex;
@@ -3328,7 +4014,7 @@ def render_weather_alert_banner(alerts):
     )
 
 
-def render_todays_insight_card(city_name, condition, insights, show_supporting_notes=True, style_variant="standard"):
+def render_todays_insight_card(city_name, condition, insights, show_supporting_notes=True, style_variant="standard", time_note=None):
     if not insights:
         return
 
@@ -3358,7 +4044,7 @@ def render_todays_insight_card(city_name, condition, insights, show_supporting_n
             <div class="intel-card-kicker">Today's Insight</div>
             <div class="intel-card-title">{escape(get_condition_icon(condition))} {escape(str(primary_insight["title"]))}</div>
             <div class="intel-card-body">{escape(str(primary_insight["body"]))}</div>
-            <div class="intel-card-note">This summary is tuned to {escape(str(city_name))} using the current weather snapshot.</div>
+            <div class="intel-card-note">{escape(str(time_note or f'This summary is tuned to {city_name} using the current weather snapshot.'))}</div>
             {support_block}
         </div>
         """,
@@ -3981,7 +4667,8 @@ def render_visual_clothing_grid(items, state_prefix="wear"):
                     continue
 
                 state_key = _wear_variant_state_key(state_prefix, item)
-                current_index = int(st.session_state.get(state_key, 0)) % len(variants)
+                default_index = int(item.get("preferred_variant_index", 0))
+                current_index = int(st.session_state.get(state_key, default_index)) % len(variants)
                 resolved_index, variant = _select_unique_wear_variant(
                     variants,
                     current_index,
@@ -4229,7 +4916,8 @@ def render_visual_clothing_grid(items, state_prefix="wear"):
                     continue
 
                 state_key = _wear_variant_state_key(state_prefix, item)
-                current_index = int(st.session_state.get(state_key, 0)) % len(variants)
+                preferred_index = int(item.get("preferred_variant_index", 0))
+                current_index = int(st.session_state.get(state_key, preferred_index)) % len(variants)
                 resolved_index, variant = _select_unique_wear_variant(
                     variants,
                     current_index,
@@ -4310,7 +4998,12 @@ def render_visual_clothing_grid(items, state_prefix="wear"):
 
 def render_weather_intelligence_sections(payload):
     render_weather_alert_banner(payload.get("alerts", []))
-    render_todays_insight_card(payload.get("city"), payload.get("condition"), payload.get("insights", []))
+    render_todays_insight_card(
+        payload.get("city"),
+        payload.get("condition"),
+        payload.get("insights", []),
+        time_note=(payload.get("time_context") or {}).get("time_note"),
+    )
 
     st.markdown("<div class='section-title'>Weather Scores</div>", unsafe_allow_html=True)
     st.markdown(

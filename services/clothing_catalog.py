@@ -239,16 +239,7 @@ def _collect_slot_variants(slot_key, primary_pool_key):
     return collected
 
 
-def get_clothing_visual_bundle(slot_key, weather_to_show):
-    current = weather_to_show["current"]
-    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
-    current_temp = current["temperature"]
-    rain_chance = today.get("rain_chance", 0)
-    uv_index = today.get("uv_index", 0)
-    wind_speed = current["wind"]
-    precipitation = current.get("precipitation", 0)
-    condition = current.get("condition", "")
-
+def _resolve_clothing_pool_key(slot_key, current_temp, rain_chance, uv_index, wind_speed, precipitation, condition):
     is_wet = rain_chance >= 45 or precipitation >= 0.2 or condition in {"Rainy", "Snowy", "Thunderstorm"}
     is_sunny = uv_index >= 6 or (condition == "Sunny" and rain_chance < 20)
     is_windy = wind_speed >= 25
@@ -292,7 +283,43 @@ def get_clothing_visual_bundle(slot_key, weather_to_show):
         else:
             pool_key = "default"
 
+    return pool_key
+
+
+def get_clothing_visual_bundle_for_conditions(
+    slot_key,
+    current_temp,
+    rain_chance=0,
+    uv_index=0,
+    wind_speed=0,
+    precipitation=0,
+    condition="",
+):
+    pool_key = _resolve_clothing_pool_key(
+        slot_key,
+        current_temp,
+        rain_chance,
+        uv_index,
+        wind_speed,
+        precipitation,
+        condition,
+    )
+
     return {
         "profile_key": f"{slot_key}-{pool_key}",
         "variants": _collect_slot_variants(slot_key, pool_key),
     }
+
+
+def get_clothing_visual_bundle(slot_key, weather_to_show):
+    current = weather_to_show["current"]
+    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    return get_clothing_visual_bundle_for_conditions(
+        slot_key,
+        current["temperature"],
+        today.get("rain_chance", 0),
+        today.get("uv_index", 0),
+        current["wind"],
+        current.get("precipitation", 0),
+        current.get("condition", ""),
+    )

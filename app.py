@@ -25,7 +25,10 @@ from services.exporters import (
     build_pdf_export,
     build_trip_plan_pdf,
 )
-from services.clothing_catalog import get_clothing_visual_bundle
+from services.clothing_catalog import (
+    get_clothing_visual_bundle,
+    get_clothing_visual_bundle_for_conditions,
+)
 from services.user_preferences import (
     load_user_preferences,
     save_user_preferences,
@@ -33,7 +36,7 @@ from services.user_preferences import (
 from ui.components import (
     apply_theme,
     format_precipitation,
-    get_background_path,
+    get_background_profile,
     render_persistent_nav_bridge,
     get_condition_icon,
     get_feels_like_icon,
@@ -83,6 +86,84 @@ EXPORT_FUTURE_LOOKAHEAD_LIMIT_DAYS = 16
 EXPORT_MAX_SELECTED_DAYS = 20
 MAP_LAYER_OPTIONS = ["Clouds", "Temperature", "Rain", "Wind", "Pressure", "Radar", "Satellite"]
 CONTENT_SECTIONS = ["Overview", "Insights", "What to Wear", "Activities", "Map", "Compare"]
+TIME_SLOT_CONFIG = [
+    {
+        "key": "morning",
+        "label": "Morning",
+        "reference": "this morning",
+        "eyebrow": "Morning Start",
+        "icon": "\U0001f305",
+        "visual_slot": "tops",
+        "preferred_variant_index": 1,
+    },
+    {
+        "key": "afternoon",
+        "label": "Afternoon",
+        "reference": "this afternoon",
+        "eyebrow": "Midday Shift",
+        "icon": "\u2600\ufe0f",
+        "visual_slot": "tops",
+        "preferred_variant_index": 2,
+    },
+    {
+        "key": "evening",
+        "label": "Evening",
+        "reference": "this evening",
+        "eyebrow": "Evening Drop",
+        "icon": "\U0001f307",
+        "visual_slot": "outerwear",
+        "preferred_variant_index": 1,
+    },
+    {
+        "key": "night",
+        "label": "Night",
+        "reference": "tonight",
+        "eyebrow": "Night Layer",
+        "icon": "\U0001f319",
+        "visual_slot": "outerwear",
+        "preferred_variant_index": 2,
+    },
+]
+PERSONAL_ACTIVITY_OPTIONS = ["Mixed", "Walking", "Running / Exercise", "Outdoor Tasks", "Studying Outside"]
+PERSONAL_TIME_OPTIONS = ["Flexible", "Morning", "Afternoon", "Evening", "Night"]
+PERSONAL_TEMPERATURE_OPTIONS = ["Balanced", "I run cold", "I run warm"]
+PERSONAL_OUTFIT_OPTIONS = ["Casual", "Sporty", "Smart Casual"]
+
+PERSONAL_ACTIVITY_KEY_MAP = {
+    "Mixed": "mixed",
+    "Walking": "walking",
+    "Running / Exercise": "running",
+    "Outdoor Tasks": "outdoor_tasks",
+    "Studying Outside": "studying_outside",
+}
+PERSONAL_ROUTINE_TITLE_MAP = {
+    "walking": "Walking",
+    "running": "Running",
+    "outdoor_tasks": "Outdoor Tasks",
+    "studying_outside": "Studying Outside",
+}
+PERSONAL_TIME_KEY_MAP = {
+    "Flexible": "",
+    "Morning": "morning",
+    "Afternoon": "afternoon",
+    "Evening": "evening",
+    "Night": "night",
+}
+PERSONAL_TEMPERATURE_OFFSET_MAP = {
+    "Balanced": 0,
+    "I run cold": -3,
+    "I run warm": 3,
+}
+PERSONAL_OUTFIT_KEY_MAP = {
+    "Casual": "casual",
+    "Sporty": "sporty",
+    "Smart Casual": "smart_casual",
+}
+PERSONALIZATION_PROMPT_PENDING = "pending"
+PERSONALIZATION_PROMPT_SAVED = "saved"
+PERSONALIZATION_PROMPT_LATER = "later"
+PERSONALIZATION_PROMPT_HIDDEN = "hidden"
+
 ROUTINE_ACTIVITY_PROFILES = [
     {
         "key": "walking",
@@ -191,16 +272,384 @@ def clamp_score(value):
     return max(0, min(int(round(value)), 10))
 
 
-def calculate_weather_scores(weather_to_show):
+def get_time_phase(hour):
+    if 5 <= hour < 11:
+        return {"key": "morning", "label": "Morning", "reference": "this morning"}
+    if 11 <= hour < 17:
+        return {"key": "afternoon", "label": "Afternoon", "reference": "this afternoon"}
+    if 17 <= hour < 21:
+        return {"key": "evening", "label": "Evening", "reference": "this evening"}
+    return {"key": "night", "label": "Night", "reference": "tonight"}
+
+
+def get_relative_day_label(target_date, reference_date):
+    if target_date == reference_date:
+        return "Today"
+    if target_date == reference_date + timedelta(days=1):
+        return "Tomorrow"
+    if target_date == reference_date - timedelta(days=1):
+        return "Yesterday"
+    return target_date.strftime("%A")
+
+
+def format_relative_phase_reference(target_dt, reference_dt):
+    phase = get_time_phase(target_dt.hour)
+    relative_day = get_relative_day_label(target_dt.date(), reference_dt.date())
+    if relative_day == "Today":
+        return "tonight" if phase["key"] == "night" else f"later this {phase['label'].lower()}"
+    if relative_day == "Tomorrow":
+        return f"tomorrow {phase['label'].lower()}"
+    return f"{relative_day.lower()} {phase['label'].lower()}"
+
+
+def get_hourly_point_datetime(point):
+    if not point:
+        return None
+
+    if point.get("time_dt") and isinstance(point.get("time_dt"), datetime):
+        return point["time_dt"]
+
+    if point.get("time_iso"):
+        try:
+            return datetime.fromisoformat(point["time_iso"])
+        except ValueError:
+            pass
+
+    try:
+        return datetime.strptime(
+            f"{point['date']} {point['time']}",
+            "%Y-%m-%d %I:%M %p",
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def collect_hourly_forecast_points(weather_to_show, limit_days=2):
+    forecast = (weather_to_show or {}).get("forecast") or []
+    entries = []
+    for day in forecast[:limit_days]:
+        for point in day.get("hourly") or []:
+            point_dt = get_hourly_point_datetime(point)
+            if not point_dt:
+                continue
+            entries.append((point_dt, {**point, "time_dt": point_dt}))
+    entries.sort(key=lambda item: item[0])
+    return entries
+
+
+def build_local_time_context(weather_to_show):
+    local_now = get_weather_local_now(weather_to_show)
+    hourly_entries = collect_hourly_forecast_points(weather_to_show, limit_days=2)
+
+    if hourly_entries and hourly_entries[0][0].tzinfo is None and local_now.tzinfo is not None:
+        reference_now = local_now.replace(tzinfo=None)
+    else:
+        reference_now = local_now
+
+    current_hour = reference_now.replace(minute=0, second=0, microsecond=0)
+    current_phase = get_time_phase(reference_now.hour)
+    future_entries = [entry for entry in hourly_entries if entry[0] >= current_hour]
+    fallback_entries = future_entries or hourly_entries
+    current_entry = fallback_entries[0] if fallback_entries else None
+    current_point = current_entry[1] if current_entry else None
+
+    today_entries = [entry for entry in hourly_entries if entry[0].date() == reference_now.date()]
+    remaining_today_entries = [entry for entry in today_entries if entry[0] >= current_hour] or today_entries
+    scheduler_entries = future_entries[:14] or remaining_today_entries or hourly_entries[:14]
+    next_window_entries = future_entries[:8] or hourly_entries[:8]
+
+    next_phase_entry = next(
+        (entry for entry in future_entries if get_time_phase(entry[0].hour)["key"] != current_phase["key"]),
+        None,
+    )
+
+    if current_point and next_window_entries:
+        end_temperature = next_window_entries[-1][1].get("temperature", current_point.get("temperature", 0))
+        temp_delta = end_temperature - current_point.get("temperature", 0)
+    else:
+        temp_delta = 0
+
+    if temp_delta >= 2:
+        temp_trend = "warming"
+    elif temp_delta <= -2:
+        temp_trend = "cooling"
+    else:
+        temp_trend = "steady"
+
+    peak_rain = max((entry[1].get("rain_chance", 0) for entry in next_window_entries), default=0)
+    peak_wind = max((entry[1].get("wind", 0) for entry in next_window_entries), default=0)
+    low_next_temp = min((entry[1].get("temperature", 0) for entry in next_window_entries), default=0)
+    high_next_temp = max((entry[1].get("temperature", 0) for entry in next_window_entries), default=0)
+    next_phase_reference = (
+        format_relative_phase_reference(next_phase_entry[0], reference_now)
+        if next_phase_entry
+        else current_phase["reference"]
+    )
+
+    return {
+        "local_now": local_now,
+        "reference_now": reference_now,
+        "local_time_label": local_now.strftime("%I:%M %p").lstrip("0"),
+        "local_day_label": local_now.strftime("%A"),
+        "phase_key": current_phase["key"],
+        "phase_label": current_phase["label"],
+        "phase_reference": current_phase["reference"],
+        "next_phase_reference": next_phase_reference,
+        "current_point": current_point,
+        "remaining_today_points": [entry[1] for entry in remaining_today_entries],
+        "scheduler_points": [entry[1] for entry in scheduler_entries],
+        "next_window_points": [entry[1] for entry in next_window_entries],
+        "peak_rain": peak_rain,
+        "peak_wind": peak_wind,
+        "low_next_temp": low_next_temp,
+        "high_next_temp": high_next_temp,
+        "temp_trend": temp_trend,
+    }
+
+
+def resolve_context_snapshot(weather_to_show, time_context=None):
+    time_context = time_context or build_local_time_context(weather_to_show)
     current = weather_to_show["current"]
     today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
-    current_temp = current["temperature"]
-    humidity = current["humidity"]
-    wind_speed = current["wind"]
-    rain_chance = today.get("rain_chance", 0)
-    precipitation = current.get("precipitation", 0)
+    hourly_point = time_context.get("current_point") or {}
+
+    return {
+        "temperature": hourly_point.get("temperature", current.get("temperature", 0)),
+        "humidity": hourly_point.get("humidity", current.get("humidity", 0)),
+        "wind": hourly_point.get("wind", current.get("wind", 0)),
+        "condition": hourly_point.get("condition", current.get("condition", "Current conditions")),
+        "rain_chance": hourly_point.get("rain_chance", today.get("rain_chance", 0)),
+        "rain_total": hourly_point.get("rain_total", current.get("precipitation", 0)),
+        "is_day": hourly_point.get("is_day", True),
+    }
+
+
+def describe_score_limiter(snapshot):
+    if snapshot["condition"] == "Thunderstorm" or snapshot["rain_chance"] >= 60:
+        return "rain pressure"
+    if snapshot["temperature"] >= 32:
+        return "heat buildup"
+    if snapshot["temperature"] <= 10:
+        return "cold air"
+    if snapshot["wind"] >= 25:
+        return "wind exposure"
+    if snapshot["humidity"] >= 75:
+        return "heavier humidity"
+    return "very little immediate weather pressure"
+
+
+def describe_temperature_shift(time_context, temp_symbol, use_fahrenheit):
+    low_temp = format_temperature_text(time_context["low_next_temp"], temp_symbol, use_fahrenheit)
+    high_temp = format_temperature_text(time_context["high_next_temp"], temp_symbol, use_fahrenheit)
+    if time_context["temp_trend"] == "cooling":
+        return f"temperatures ease back toward {low_temp}"
+    if time_context["temp_trend"] == "warming":
+        return f"temperatures climb closer to {high_temp}"
+    return f"temperatures hold between {low_temp} and {high_temp}"
+
+
+def tighten_preview_copy(text, max_length=118):
+    cleaned = " ".join(str(text or "").split())
+    if len(cleaned) <= max_length:
+        return cleaned
+
+    break_markers = [". ", "! ", "? ", "; ", " This ", " Later ", " Rain ", " Wind ", " UV ", " because ", " while ", " so "]
+    for marker in break_markers:
+        marker_index = cleaned.find(marker)
+        if 0 < marker_index <= max_length:
+            clipped = cleaned[:marker_index].rstrip(",;: ")
+            return clipped if clipped.endswith((".", "!", "?")) else clipped + "."
+
+    clipped = cleaned[:max_length].rsplit(" ", 1)[0].rstrip(",;: ")
+    return clipped + "..."
+
+
+def get_base_outfit_variant_index(item_id, phase_key):
+    phase_preferences = {
+        "morning": {
+            "tops": 1,
+            "bottoms": 0,
+            "outerwear": 0,
+            "shoes": 0,
+            "accessories": 1,
+            "weather-add-ons": 0,
+        },
+        "afternoon": {
+            "tops": 2,
+            "bottoms": 1,
+            "outerwear": 0,
+            "shoes": 1,
+            "accessories": 2,
+            "weather-add-ons": 0,
+        },
+        "evening": {
+            "tops": 0,
+            "bottoms": 1,
+            "outerwear": 1,
+            "shoes": 1,
+            "accessories": 0,
+            "weather-add-ons": 0,
+        },
+        "night": {
+            "tops": 0,
+            "bottoms": 1,
+            "outerwear": 2,
+            "shoes": 0,
+            "accessories": 1,
+            "weather-add-ons": 0,
+        },
+    }
+    return int(phase_preferences.get(phase_key, {}).get(item_id, 0))
+
+
+def get_personalization_profile(source=None):
+    source = source or st.session_state
+    activity_focus = str(source.get("personal_activity_focus", source.get("activity_focus", PERSONAL_ACTIVITY_OPTIONS[0])) or PERSONAL_ACTIVITY_OPTIONS[0])
+    preferred_time = str(source.get("personal_preferred_time", source.get("preferred_time", PERSONAL_TIME_OPTIONS[0])) or PERSONAL_TIME_OPTIONS[0])
+    temperature_preference = str(
+        source.get("personal_temperature_preference", source.get("temperature_preference", PERSONAL_TEMPERATURE_OPTIONS[0]))
+        or PERSONAL_TEMPERATURE_OPTIONS[0]
+    )
+    outfit_vibe = str(source.get("personal_outfit_vibe", source.get("outfit_vibe", PERSONAL_OUTFIT_OPTIONS[0])) or PERSONAL_OUTFIT_OPTIONS[0])
+
+    return {
+        "activity_focus": activity_focus,
+        "activity_focus_key": PERSONAL_ACTIVITY_KEY_MAP.get(activity_focus, "mixed"),
+        "preferred_time": preferred_time,
+        "preferred_time_key": PERSONAL_TIME_KEY_MAP.get(preferred_time, ""),
+        "temperature_preference": temperature_preference,
+        "temperature_offset": PERSONAL_TEMPERATURE_OFFSET_MAP.get(temperature_preference, 0),
+        "outfit_vibe": outfit_vibe,
+        "outfit_vibe_key": PERSONAL_OUTFIT_KEY_MAP.get(outfit_vibe, "casual"),
+        "is_customized": any(
+            [
+                activity_focus != PERSONAL_ACTIVITY_OPTIONS[0],
+                preferred_time != PERSONAL_TIME_OPTIONS[0],
+                temperature_preference != PERSONAL_TEMPERATURE_OPTIONS[0],
+                outfit_vibe != PERSONAL_OUTFIT_OPTIONS[0],
+            ]
+        ),
+    }
+
+
+def get_personalization_prompt_state(source=None):
+    source = source or st.session_state
+    return str(source.get("personalization_prompt_status") or PERSONALIZATION_PROMPT_PENDING)
+
+
+def should_show_personalization_prompt(source=None):
+    source = source or st.session_state
+    prompt_state = get_personalization_prompt_state(source)
+    if prompt_state in {PERSONALIZATION_PROMPT_SAVED, PERSONALIZATION_PROMPT_HIDDEN}:
+        return False
+    if prompt_state != PERSONALIZATION_PROMPT_LATER:
+        return True
+
+    remind_after = str(source.get("personalization_remind_after") or "").strip()
+    if not remind_after:
+        return True
+    try:
+        remind_date = date.fromisoformat(remind_after)
+    except ValueError:
+        return True
+    return date.today() >= remind_date
+
+
+def phase_key_for_hourly_point(point):
+    point_dt = get_hourly_point_datetime(point)
+    if point_dt:
+        return get_time_phase(point_dt.hour)["key"]
+    moment = parse_scheduler_hour_label(point.get("time"))
+    if moment:
+        return get_time_phase(moment.hour)["key"]
+    return ""
+
+
+def apply_temperature_preference(temperature, personalization):
+    personalization = get_personalization_profile(personalization)
+    return temperature + personalization["temperature_offset"]
+
+
+def choose_style_preferred_variant_index(variants, fallback_index, outfit_vibe_key):
+    if not variants:
+        return fallback_index
+    if outfit_vibe_key not in {"casual", "sporty", "smart_casual"}:
+        return fallback_index
+
+    style_keywords = {
+        "casual": ["tee", "hoodie", "relaxed", "casual", "denim", "soft", "simple", "everyday", "sandal"],
+        "sporty": ["runner", "running", "trainer", "sport", "sporty", "shell", "cap", "active", "movement"],
+        "smart_casual": ["polo", "shirt", "collared", "structured", "sharp", "smart", "polished", "leather", "clean", "classic"],
+    }
+
+    best_index = fallback_index
+    best_score = -1
+    for index, variant in enumerate(variants):
+        haystack = " ".join(
+            [
+                str(variant.get("style_name") or ""),
+                str(variant.get("note") or ""),
+                " ".join(str(badge) for badge in variant.get("badges", [])),
+                " ".join(str(tag) for tag in variant.get("tags", [])),
+            ]
+        ).lower()
+        score = sum(1 for keyword in style_keywords[outfit_vibe_key] if keyword in haystack)
+        if score > best_score or (score == best_score and abs(index - fallback_index) < abs(best_index - fallback_index)):
+            best_score = score
+            best_index = index
+
+    return best_index if best_score > 0 else fallback_index
+
+
+def get_personalization_draft_values(key_prefix):
+    return {
+        "personal_activity_focus": st.session_state.get(f"{key_prefix}_activity_focus_choice", PERSONAL_ACTIVITY_OPTIONS[0]),
+        "personal_preferred_time": st.session_state.get(f"{key_prefix}_preferred_time_choice", PERSONAL_TIME_OPTIONS[0]),
+        "personal_temperature_preference": st.session_state.get(f"{key_prefix}_temperature_preference_choice", PERSONAL_TEMPERATURE_OPTIONS[0]),
+        "personal_outfit_vibe": st.session_state.get(f"{key_prefix}_outfit_vibe_choice", PERSONAL_OUTFIT_OPTIONS[0]),
+    }
+
+
+def sync_personalization_draft_state(key_prefix):
+    st.session_state[f"{key_prefix}_activity_focus_choice"] = st.session_state.get("personal_activity_focus", PERSONAL_ACTIVITY_OPTIONS[0])
+    st.session_state[f"{key_prefix}_preferred_time_choice"] = st.session_state.get("personal_preferred_time", PERSONAL_TIME_OPTIONS[0])
+    st.session_state[f"{key_prefix}_temperature_preference_choice"] = st.session_state.get("personal_temperature_preference", PERSONAL_TEMPERATURE_OPTIONS[0])
+    st.session_state[f"{key_prefix}_outfit_vibe_choice"] = st.session_state.get("personal_outfit_vibe", PERSONAL_OUTFIT_OPTIONS[0])
+
+
+def apply_personalization_draft_state(key_prefix):
+    st.session_state.update(get_personalization_draft_values(key_prefix))
+
+
+def describe_personalization_summary(personalization):
+    personalization = get_personalization_profile(personalization)
+    return " | ".join(
+        [
+            f"Focus: {personalization['activity_focus']}",
+            f"Best time: {personalization['preferred_time']}",
+            f"Temperature: {personalization['temperature_preference']}",
+            f"Style: {personalization['outfit_vibe']}",
+        ]
+    )
+
+
+def calculate_weather_scores(weather_to_show, time_context=None, personalization=None):
+    time_context = time_context or build_local_time_context(weather_to_show)
+    personalization = get_personalization_profile(personalization)
+    current = weather_to_show["current"]
+    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    snapshot = resolve_context_snapshot(weather_to_show, time_context)
+    current_temp = apply_temperature_preference(snapshot["temperature"], personalization)
+    humidity = snapshot["humidity"]
+    wind_speed = snapshot["wind"]
+    rain_chance = snapshot["rain_chance"]
+    precipitation = max(snapshot["rain_total"], current.get("precipitation", 0))
     visibility = current.get("visibility", 10)
-    condition = current["condition"]
+    condition = snapshot["condition"]
+    phase_key = time_context["phase_key"]
+    uv_index = today.get("uv_index", 0)
+
+    current = weather_to_show["current"]
 
     comfort = 10.0
     comfort -= max(0, current_temp - 26) * 0.28
@@ -239,6 +688,27 @@ def calculate_weather_scores(weather_to_show):
     elif condition == "Snowy":
         travel -= 2.5
 
+    if phase_key == "morning":
+        if 16 <= current_temp <= 27 and humidity <= 72:
+            comfort += 0.35
+            outdoor += 0.25
+        travel += 0.15
+    elif phase_key == "afternoon":
+        comfort -= max(0, uv_index - 5) * 0.18
+        if current_temp >= 30:
+            comfort -= 0.45
+            outdoor -= 0.65
+    elif phase_key == "evening":
+        if current_temp <= 30 and rain_chance < 30 and wind_speed < 22:
+            comfort += 0.35
+            outdoor += 0.45
+    else:
+        outdoor -= 0.9
+        if 14 <= current_temp <= 26 and rain_chance < 25 and wind_speed < 18:
+            comfort += 0.25
+        if visibility < 6 or condition in {"Foggy", "Rainy", "Thunderstorm", "Snowy"}:
+            travel -= 0.45
+
     return {
         "comfort": clamp_score(comfort),
         "outdoor": clamp_score(outdoor),
@@ -246,22 +716,27 @@ def calculate_weather_scores(weather_to_show):
     }
 
 
-def build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+def build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context=None, personalization=None):
+    time_context = time_context or build_local_time_context(weather_to_show)
+    personalization = get_personalization_profile(personalization)
     current = weather_to_show["current"]
     today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    snapshot = resolve_context_snapshot(weather_to_show, time_context)
     alerts = []
-    day_high = today.get("max", current["temperature"])
-    day_low = today.get("min", current["temperature"])
-    rain_chance = today.get("rain_chance", 0)
-    wind_speed = current["wind"]
+    day_high = apply_temperature_preference(today.get("max", current["temperature"]), personalization)
+    day_low = apply_temperature_preference(today.get("min", current["temperature"]), personalization)
+    personal_now = apply_temperature_preference(snapshot["temperature"], personalization)
+    rain_chance = max(today.get("rain_chance", 0), snapshot["rain_chance"])
+    wind_speed = max(current["wind"], snapshot["wind"])
+    phase_reference = time_context["phase_reference"]
 
-    if current["condition"] == "Thunderstorm":
+    if snapshot["condition"] == "Thunderstorm":
         alerts.append(
             {
                 "tone": "danger",
                 "icon": "\u26c8\ufe0f",
                 "title": "Storm conditions are active",
-                "body": "Thunderstorm activity makes outdoor plans and longer travel less reliable right now.",
+                "body": f"Thunderstorm activity is shaping {phase_reference}, so outdoor plans and longer travel are less reliable.",
             }
         )
 
@@ -271,17 +746,20 @@ def build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenh
                 "tone": "warning",
                 "icon": "\U0001f525",
                 "title": "High temperature warning",
-                "body": f"Today's peak is around {format_temperature_text(day_high, temp_symbol, use_fahrenheit)}, so midday heat can feel intense.",
+                "body": (
+                    f"The day's high still reaches about {format_temperature_text(day_high, temp_symbol, use_fahrenheit)}, "
+                    f"so heat remains part of the planning picture {phase_reference}."
+                ),
             }
         )
 
-    if rain_chance >= 55 or current.get("precipitation", 0) >= 0.3:
+    if rain_chance >= 55 or snapshot["rain_total"] >= 0.3:
         alerts.append(
             {
                 "tone": "info",
                 "icon": "\U0001f327\ufe0f",
                 "title": "Rain is likely",
-                "body": f"Rain chance is near {rain_chance}%, so it is worth planning for wet surfaces and possible showers.",
+                "body": f"Rain risk is near {rain_chance}% across the next hours, so wet surfaces and showers are worth planning around.",
             }
         )
 
@@ -291,17 +769,17 @@ def build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenh
                 "tone": "warning",
                 "icon": "\U0001f32c\ufe0f",
                 "title": "Strong wind warning",
-                "body": f"Winds are around {format_wind_text(wind_speed, speed_symbol)}, which can make outdoor time feel noticeably rougher.",
+                "body": f"Winds are near {format_wind_text(wind_speed, speed_symbol)} {phase_reference}, which can make outdoor time feel noticeably rougher.",
             }
         )
 
-    if day_low <= 8 or current["temperature"] <= 8:
+    if day_low <= 8 or personal_now <= 8:
         alerts.append(
             {
                 "tone": "notice",
                 "icon": "\u2744\ufe0f",
                 "title": "Cold weather notice",
-                "body": f"Temperatures are dropping toward {format_temperature_text(day_low, temp_symbol, use_fahrenheit)}, so warmer layers will help.",
+                "body": f"Temperatures dip toward {format_temperature_text(day_low, temp_symbol, use_fahrenheit)}, so warmer layers will help {phase_reference}.",
             }
         )
 
@@ -311,17 +789,25 @@ def build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenh
                 "tone": "calm",
                 "icon": "\u2705",
                 "title": "No major weather alerts",
-                "body": "Conditions look fairly steady right now with no strong warning signals from the current snapshot.",
+                "body": f"{phase_reference.capitalize()} looks fairly steady, with no strong warning signals standing out from the local-time snapshot.",
             }
         )
 
     return alerts[:4]
 
 
-def build_weather_score_cards(weather_to_show):
+def build_weather_score_cards(weather_to_show, time_context=None, personalization=None):
+    time_context = time_context or build_local_time_context(weather_to_show)
+    personalization = get_personalization_profile(personalization)
     current = weather_to_show["current"]
-    rain_chance = weather_to_show["forecast"][0].get("rain_chance", 0) if weather_to_show.get("forecast") else 0
-    scores = calculate_weather_scores(weather_to_show)
+    snapshot = resolve_context_snapshot(weather_to_show, time_context)
+    rain_chance = max(
+        snapshot["rain_chance"],
+        weather_to_show["forecast"][0].get("rain_chance", 0) if weather_to_show.get("forecast") else 0,
+    )
+    scores = calculate_weather_scores(weather_to_show, time_context, personalization)
+    phase_reference = time_context["phase_reference"]
+    limiter_text = describe_score_limiter(snapshot)
 
     score_cards = [
         {
@@ -329,11 +815,11 @@ def build_weather_score_cards(weather_to_show):
             "label": "Comfort Score",
             "value": scores["comfort"],
             "summary": (
-                "Air feels balanced and easy to stay in."
+                f"Comfort is strongest {phase_reference}, so the air should feel balanced and easy to stay in."
                 if scores["comfort"] >= 8
-                else "Conditions are manageable, but one factor may feel noticeable."
+                else f"Comfort is workable {phase_reference}, but {limiter_text} is the main thing you will notice."
                 if scores["comfort"] >= 5
-                else "Comfort is limited, so shade, hydration, or extra layers may help."
+                else f"Comfort is softer {phase_reference}, so {limiter_text} is the part to plan around."
             ),
         },
         {
@@ -341,11 +827,11 @@ def build_weather_score_cards(weather_to_show):
             "label": "Outdoor Score",
             "value": scores["outdoor"],
             "summary": (
-                "Parks, walks, and open-air time look favorable."
+                f"Open-air plans read well {phase_reference}, especially if you want a cleaner window for walking or errands."
                 if scores["outdoor"] >= 8
-                else "Outdoor plans still work, but timing and pacing matter."
+                else f"Outdoor plans still work {phase_reference}, but timing and pacing matter more than usual."
                 if scores["outdoor"] >= 5
-                else "Outdoor time is less appealing under the current setup."
+                else f"Outdoor time is less appealing {phase_reference}, so shorter exposure or indoor backup makes more sense."
             ),
         },
         {
@@ -353,11 +839,11 @@ def build_weather_score_cards(weather_to_show):
             "label": "Travel Score",
             "value": scores["travel"],
             "summary": (
-                "General movement and local travel should feel smooth."
+                f"Local movement should feel fairly smooth {phase_reference}."
                 if scores["travel"] >= 8
-                else "Travel is still workable, though weather may slow things down a bit."
+                else f"Travel is still workable {phase_reference}, though weather may slow parts of the route down a bit."
                 if scores["travel"] >= 5
-                else "Weather can interfere with easier travel conditions today."
+                else f"Travel friction is higher {phase_reference}, so extra time and a steadier pace help."
             ),
         },
     ]
@@ -368,7 +854,8 @@ def build_weather_score_cards(weather_to_show):
     return score_cards
 
 
-def build_forecast_trend_insight(weather_to_show, temp_symbol, use_fahrenheit):
+def build_forecast_trend_insight(weather_to_show, temp_symbol, use_fahrenheit, time_context=None):
+    time_context = time_context or build_local_time_context(weather_to_show)
     forecast = weather_to_show.get("forecast") or []
     current = weather_to_show.get("current") or {}
     actual_temp = current.get("temperature", 0)
@@ -388,21 +875,21 @@ def build_forecast_trend_insight(weather_to_show, temp_symbol, use_fahrenheit):
     if high_shift >= 3:
         trend_title = "Warming trend is building"
         trend_body = (
-            f"Forecast highs climb from {format_temperature_text(start_high, temp_symbol, use_fahrenheit)} "
+            f"After {time_context['phase_reference']}, forecast highs climb from {format_temperature_text(start_high, temp_symbol, use_fahrenheit)} "
             f"to {format_temperature_text(end_high, temp_symbol, use_fahrenheit)} across the next {len(trend_window)} days, "
             f"with rain chances reaching {peak_rain}%."
         )
     elif high_shift <= -3:
         trend_title = "Cooling trend is setting in"
         trend_body = (
-            f"Forecast highs ease from {format_temperature_text(start_high, temp_symbol, use_fahrenheit)} "
+            f"After {time_context['phase_reference']}, forecast highs ease from {format_temperature_text(start_high, temp_symbol, use_fahrenheit)} "
             f"to {format_temperature_text(end_high, temp_symbol, use_fahrenheit)} over the next {len(trend_window)} days, "
             f"while rain chances peak near {peak_rain}%."
         )
     else:
         trend_title = "Temperatures stay fairly stable"
         trend_body = (
-            f"Highs hold between {format_temperature_text(low_span, temp_symbol, use_fahrenheit)} "
+            f"From {time_context['phase_reference']} forward, highs hold between {format_temperature_text(low_span, temp_symbol, use_fahrenheit)} "
             f"and {format_temperature_text(high_span, temp_symbol, use_fahrenheit)} through the next {len(trend_window)} days, "
             f"with average rain chances around {average_rain}%."
         )
@@ -415,66 +902,95 @@ def build_forecast_trend_insight(weather_to_show, temp_symbol, use_fahrenheit):
     }
 
 
-def build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+def build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context=None):
+    time_context = time_context or build_local_time_context(weather_to_show)
+    personalization = get_personalization_profile()
     current = weather_to_show["current"]
-    actual_temp = current["temperature"]
+    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    snapshot = resolve_context_snapshot(weather_to_show, time_context)
+    actual_temp = snapshot["temperature"]
     feels_like = current["feels_like"]
-    humidity = current["humidity"]
-    wind_speed = current["wind"]
+    humidity = snapshot["humidity"]
+    wind_speed = snapshot["wind"]
     temp_gap = feels_like - actual_temp
+    shift_text = describe_temperature_shift(time_context, temp_symbol, use_fahrenheit)
 
     if temp_gap >= 2:
         feels_like_title = "Feels warmer than the reading"
         feels_like_body = (
-            f"It feels about {format_temperature_delta(temp_gap, use_fahrenheit)}{temp_symbol} warmer than the measured "
+            f"{time_context['phase_reference'].capitalize()}, it feels about {format_temperature_delta(temp_gap, use_fahrenheit)}{temp_symbol} warmer than the measured "
             f"{format_temperature_text(actual_temp, temp_symbol, use_fahrenheit)} because moisture is reducing how quickly your body can cool."
         )
     elif temp_gap <= -2:
         feels_like_title = "Feels cooler than the reading"
         feels_like_body = (
-            f"It feels about {format_temperature_delta(temp_gap, use_fahrenheit)}{temp_symbol} cooler than the measured "
+            f"{time_context['phase_reference'].capitalize()}, it feels about {format_temperature_delta(temp_gap, use_fahrenheit)}{temp_symbol} cooler than the measured "
             f"{format_temperature_text(actual_temp, temp_symbol, use_fahrenheit)} because moving air is pulling heat away faster."
         )
     else:
         feels_like_title = "Feels close to the actual temperature"
         feels_like_body = (
-            f"Feels-like and actual temperature are closely aligned, so conditions should feel near "
+            f"{time_context['phase_reference'].capitalize()}, feels-like and actual temperature are closely aligned, so conditions should feel near "
             f"{format_temperature_text(actual_temp, temp_symbol, use_fahrenheit)} for most people."
         )
 
     if humidity < 30:
         humidity_title = "Dry air setup"
-        humidity_body = f"Humidity is {humidity}%, which can feel dry on the skin and throat during longer periods outside."
+        humidity_body = f"Humidity is {humidity}%, so {time_context['phase_reference']} can feel dry on the skin and throat during longer periods outside."
     elif humidity <= 60:
         humidity_title = "Comfortable humidity"
-        humidity_body = f"Humidity is {humidity}%, staying in a fairly balanced comfort range for day-to-day activity."
+        humidity_body = f"Humidity is {humidity}%, keeping {time_context['phase_reference']} in a fairly balanced comfort range."
     elif humidity <= 75:
         humidity_title = "Slightly sticky air"
-        humidity_body = f"Humidity is {humidity}%, so the air may feel a little heavier during walks or longer errands."
+        humidity_body = f"Humidity is {humidity}%, so the air may feel a little heavier during walks or longer errands {time_context['phase_reference']}."
     else:
         humidity_title = "Muggy humidity"
-        humidity_body = f"Humidity is {humidity}%, which can make the air feel warmer and reduce cooling comfort."
+        humidity_body = f"Humidity is {humidity}%, which can make {time_context['phase_reference']} feel warmer and reduce cooling comfort."
 
     if wind_speed < 10:
         wind_title = "Light air movement"
-        wind_body = f"Winds are light at about {format_wind_text(wind_speed, speed_symbol)}, so the air should feel fairly still."
+        wind_body = f"Winds are light at about {format_wind_text(wind_speed, speed_symbol)}, so the air should feel fairly still {time_context['phase_reference']}."
     elif wind_speed < 25:
         wind_title = "Steady breeze"
-        wind_body = f"A breeze near {format_wind_text(wind_speed, speed_symbol)} keeps the air moving without feeling too rough."
+        wind_body = f"A breeze near {format_wind_text(wind_speed, speed_symbol)} keeps the air moving without feeling too rough {time_context['phase_reference']}."
     elif wind_speed < 35:
         wind_title = "Noticeable wind"
-        wind_body = f"Winds near {format_wind_text(wind_speed, speed_symbol)} will be easy to notice, especially in open areas."
+        wind_body = f"Winds near {format_wind_text(wind_speed, speed_symbol)} will be easy to notice {time_context['phase_reference']}, especially in open areas."
     else:
         wind_title = "Wind is a major factor"
-        wind_body = f"Strong wind around {format_wind_text(wind_speed, speed_symbol)} can noticeably change comfort and outdoor plans."
+        wind_body = f"Strong wind around {format_wind_text(wind_speed, speed_symbol)} can noticeably change comfort and outdoor plans {time_context['phase_reference']}."
 
     insights = [
+        {
+            "eyebrow": "Time Of Day Read",
+            "title": f"{time_context['phase_label']} guidance is active",
+            "body": (
+                f"It is {time_context['local_time_label']} locally, so guidance is weighted toward {time_context['phase_reference']}. "
+                f"{shift_text.capitalize()} over the next hours, with rain risk peaking near {time_context['peak_rain']}%."
+                + (
+                    f" Your profile leans toward {personalization['activity_focus'].lower()}, {personalization['preferred_time'].lower()}, and a {personalization['outfit_vibe'].lower()} outfit direction."
+                    if personalization["is_customized"]
+                    else ""
+                )
+            ),
+            "icon": "\U0001f552",
+        },
         {"eyebrow": "Feels-Like Logic", "title": feels_like_title, "body": feels_like_body, "icon": "\U0001f321\ufe0f"},
         {"eyebrow": "Humidity Comfort", "title": humidity_title, "body": humidity_body, "icon": "\U0001f4a7"},
         {"eyebrow": "Wind Summary", "title": wind_title, "body": wind_body, "icon": "\U0001f32c\ufe0f"},
     ]
 
-    trend_insight = build_forecast_trend_insight(weather_to_show, temp_symbol, use_fahrenheit)
+    if today.get("uv_index", 0) >= 6 and time_context["phase_key"] in {"morning", "afternoon"}:
+        insights.append(
+            {
+                "eyebrow": "Sun Pressure",
+                "title": "Sun exposure is part of the read",
+                "body": f"UV reaches about {today.get('uv_index', 0)} today, so midday comfort and what-to-wear guidance stay stricter than they would at night.",
+                "icon": "\u2600\ufe0f",
+            }
+        )
+
+    trend_insight = build_forecast_trend_insight(weather_to_show, temp_symbol, use_fahrenheit, time_context)
     if trend_insight:
         insights.append(trend_insight)
 
@@ -494,23 +1010,34 @@ def format_scheduler_hour_label(moment):
     return moment.strftime("%I %p").lstrip("0")
 
 
-def format_scheduler_block_label(block_hours):
+def format_scheduler_block_label(block_hours, reference_dt=None):
     if not block_hours:
         return "--"
 
-    start_time = parse_scheduler_hour_label(block_hours[0]["time"])
-    end_time = parse_scheduler_hour_label(block_hours[-1]["time"])
+    start_dt = get_hourly_point_datetime(block_hours[0])
+    end_dt = get_hourly_point_datetime(block_hours[-1])
+    if start_dt and end_dt:
+        start_time = start_dt
+        end_time = end_dt
+    else:
+        start_time = parse_scheduler_hour_label(block_hours[0]["time"])
+        end_time = parse_scheduler_hour_label(block_hours[-1]["time"])
     if not start_time or not end_time:
         return block_hours[0]["time"]
 
     end_time = end_time + timedelta(hours=1)
+    day_prefix = ""
+    if reference_dt and hasattr(start_time, "date"):
+        relative_day = get_relative_day_label(start_time.date(), reference_dt.date())
+        if relative_day != "Today":
+            day_prefix = f"{relative_day} "
     if len(block_hours) == 1:
         if start_time.strftime("%p") == end_time.strftime("%p"):
-            return f"{start_time.strftime('%I').lstrip('0')}-{end_time.strftime('%I %p').lstrip('0')}"
-        return f"{format_scheduler_hour_label(start_time)} - {format_scheduler_hour_label(end_time)}"
+            return f"{day_prefix}{start_time.strftime('%I').lstrip('0')}-{end_time.strftime('%I %p').lstrip('0')}"
+        return f"{day_prefix}{format_scheduler_hour_label(start_time)} - {format_scheduler_hour_label(end_time)}"
     if start_time.strftime("%p") == end_time.strftime("%p"):
-        return f"{start_time.strftime('%I').lstrip('0')}-{end_time.strftime('%I %p').lstrip('0')}"
-    return f"{format_scheduler_hour_label(start_time)} - {format_scheduler_hour_label(end_time)}"
+        return f"{day_prefix}{start_time.strftime('%I').lstrip('0')}-{end_time.strftime('%I %p').lstrip('0')}"
+    return f"{day_prefix}{format_scheduler_hour_label(start_time)} - {format_scheduler_hour_label(end_time)}"
 
 
 def point_in_routine_hour_window(point, profile):
@@ -523,8 +1050,9 @@ def point_in_routine_hour_window(point, profile):
     return start_hour <= moment.hour < end_hour
 
 
-def score_routine_hour(point, profile):
-    temperature = point.get("temperature", 0)
+def score_routine_hour(point, profile, personalization=None):
+    personalization = get_personalization_profile(personalization)
+    temperature = apply_temperature_preference(point.get("temperature", 0), personalization)
     rain_chance = point.get("rain_chance", 0)
     wind_speed = point.get("wind", 0)
     humidity = point.get("humidity", 0)
@@ -565,16 +1093,20 @@ def score_routine_hour(point, profile):
     if humidity < 30:
         score -= (30 - humidity) * 0.12
 
+    preferred_time_key = personalization.get("preferred_time_key")
+    if preferred_time_key and phase_key_for_hourly_point(point) == preferred_time_key:
+        score += 6
+
     return max(0, min(int(round(score)), 100))
 
 
-def build_routine_block(hour_slice):
+def build_routine_block(hour_slice, reference_dt=None):
     if not hour_slice:
         return None
 
     return {
         "hours": hour_slice,
-        "label": format_scheduler_block_label(hour_slice),
+        "label": format_scheduler_block_label(hour_slice, reference_dt),
         "avg_score": round(sum(hour["score"] for hour in hour_slice) / len(hour_slice)),
         "avg_temp": round(sum(hour["temperature"] for hour in hour_slice) / len(hour_slice), 1),
         "avg_rain": round(sum(hour["rain_chance"] for hour in hour_slice) / len(hour_slice)),
@@ -584,7 +1116,7 @@ def build_routine_block(hour_slice):
     }
 
 
-def build_best_routine_blocks(scored_hours, minimum_score):
+def build_best_routine_blocks(scored_hours, minimum_score, reference_dt=None):
     candidate_blocks = []
     current_block = []
 
@@ -592,22 +1124,22 @@ def build_best_routine_blocks(scored_hours, minimum_score):
         if hour["score"] >= minimum_score:
             current_block.append(hour)
         elif current_block:
-            candidate_blocks.append(build_routine_block(current_block))
+            candidate_blocks.append(build_routine_block(current_block, reference_dt))
             current_block = []
 
     if current_block:
-        candidate_blocks.append(build_routine_block(current_block))
+        candidate_blocks.append(build_routine_block(current_block, reference_dt))
 
     candidate_blocks = [block for block in candidate_blocks if block]
     candidate_blocks.sort(key=lambda block: (block["avg_score"], block["length"]), reverse=True)
     return candidate_blocks
 
 
-def build_fallback_routine_block(scored_hours):
+def build_fallback_routine_block(scored_hours, reference_dt=None):
     if not scored_hours:
         return None
     if len(scored_hours) == 1:
-        return build_routine_block([scored_hours[0]])
+        return build_routine_block([scored_hours[0]], reference_dt)
 
     best_window = None
     best_window_score = -1
@@ -618,10 +1150,10 @@ def build_fallback_routine_block(scored_hours):
             best_window = window
             best_window_score = window_score
 
-    return build_routine_block(best_window or [max(scored_hours, key=lambda hour: hour["score"])])
+    return build_routine_block(best_window or [max(scored_hours, key=lambda hour: hour["score"])], reference_dt)
 
 
-def trim_routine_block(block, target_hours):
+def trim_routine_block(block, target_hours, reference_dt=None):
     if not block or target_hours <= 0:
         return block
     hours = block.get("hours", [])
@@ -637,7 +1169,7 @@ def trim_routine_block(block, target_hours):
             best_slice = window
             best_score = window_score
 
-    return build_routine_block(best_slice or hours[:target_hours])
+    return build_routine_block(best_slice or hours[:target_hours], reference_dt)
 
 
 def build_routine_reason_text(block, profile, temp_symbol, speed_symbol, use_fahrenheit):
@@ -675,7 +1207,7 @@ def build_routine_reason_text(block, profile, temp_symbol, speed_symbol, use_fah
     return summary, detail
 
 
-def build_avoid_time_blocks(hourly_points):
+def build_avoid_time_blocks(hourly_points, reference_dt=None):
     flagged_hours = []
     for point in hourly_points:
         reasons = []
@@ -717,7 +1249,7 @@ def build_avoid_time_blocks(hourly_points):
         dominant_reasons = sorted(reason_counts.items(), key=lambda item: item[1], reverse=True)
         decorated_blocks.append(
             {
-                "label": format_scheduler_block_label(block),
+                "label": format_scheduler_block_label(block, reference_dt),
                 "hours": block,
                 "severity": round(sum(hour["severity"] for hour in block) / len(block)),
                 "reason_text": " + ".join(reason for reason, _ in dominant_reasons[:2]),
@@ -728,24 +1260,27 @@ def build_avoid_time_blocks(hourly_points):
     return decorated_blocks[:2]
 
 
-def build_daily_routine_scheduler(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+def build_daily_routine_scheduler(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context=None, personalization=None):
+    time_context = time_context or build_local_time_context(weather_to_show)
+    personalization = get_personalization_profile(personalization)
     forecast = weather_to_show.get("forecast") or []
     today = forecast[0] if forecast else {}
-    hourly_points = today.get("hourly") or []
+    hourly_points = time_context.get("scheduler_points") or today.get("hourly") or []
     if not hourly_points:
         return {}
 
     schedule_items = []
     summary_items = []
+    reference_dt = time_context["reference_now"]
 
     for profile in ROUTINE_ACTIVITY_PROFILES:
         profile_points = [point for point in hourly_points if point_in_routine_hour_window(point, profile)] or hourly_points
-        scored_hours = [{**point, "score": score_routine_hour(point, profile)} for point in profile_points]
-        best_blocks = build_best_routine_blocks(scored_hours, profile["minimum_score"])
-        selected_block = best_blocks[0] if best_blocks else build_fallback_routine_block(scored_hours)
+        scored_hours = [{**point, "score": score_routine_hour(point, profile, personalization)} for point in profile_points]
+        best_blocks = build_best_routine_blocks(scored_hours, profile["minimum_score"], reference_dt)
+        selected_block = best_blocks[0] if best_blocks else build_fallback_routine_block(scored_hours, reference_dt)
         if not selected_block:
             continue
-        selected_block = trim_routine_block(selected_block, profile.get("target_block_hours", 0))
+        selected_block = trim_routine_block(selected_block, profile.get("target_block_hours", 0), reference_dt)
 
         reason_text, detail_text = build_routine_reason_text(
             selected_block,
@@ -757,7 +1292,7 @@ def build_daily_routine_scheduler(weather_to_show, temp_symbol, speed_symbol, us
         summary_items.append(
             {
                 "title": profile["eyebrow"],
-                "body": f"{profile['title']}: {selected_block['label']} ({reason_text})",
+                "body": f"{selected_block['label']} works best ({reason_text}).",
             }
         )
         schedule_items.append(
@@ -766,23 +1301,23 @@ def build_daily_routine_scheduler(weather_to_show, temp_symbol, speed_symbol, us
                 "title": selected_block["label"],
                 "body": (
                     f"{selected_block['label']} scores best for {profile['label']} because of {reason_text}. "
-                    f"{detail_text}"
+                    f"{detail_text} This is the next strongest block from {time_context['phase_reference']} onward."
                 ),
                 "icon": profile["icon"],
             }
         )
 
-    avoid_blocks = build_avoid_time_blocks(hourly_points)
+    avoid_blocks = build_avoid_time_blocks(hourly_points, reference_dt)
     if avoid_blocks:
         avoid_summary = "; ".join(f"{block['label']} ({block['reason_text']})" for block in avoid_blocks)
-        summary_items.append({"title": "Avoid Times", "body": avoid_summary})
+        summary_items.append({"title": "Avoid Times", "body": tighten_preview_copy(avoid_summary, max_length=112)})
         avoid_body = "Avoid " + "; ".join(
             f"{block['label']} when {block['reason_text']} takes over"
             for block in avoid_blocks
         ) + "."
     else:
-        avoid_body = "No major heat, rain, or wind spike stands out strongly enough to flag a clear avoid window today."
-        summary_items.append({"title": "Avoid Times", "body": "No major avoid window stands out today."})
+        avoid_body = f"No major heat, rain, or wind spike stands out strongly enough to flag a clear avoid window from {time_context['phase_reference']} forward."
+        summary_items.append({"title": "Avoid Times", "body": f"No major avoid window stands out from {time_context['phase_reference']} onward."})
 
     schedule_items.append(
         {
@@ -793,111 +1328,289 @@ def build_daily_routine_scheduler(weather_to_show, temp_symbol, speed_symbol, us
         }
     )
 
+    focus_title = PERSONAL_ROUTINE_TITLE_MAP.get(personalization.get("activity_focus_key"))
+    if focus_title:
+        summary_items.sort(key=lambda item: (0 if item.get("title") == focus_title else 2 if item.get("title") == "Avoid Times" else 1))
+        schedule_items.sort(key=lambda item: (0 if item.get("eyebrow") == focus_title else 2 if item.get("eyebrow") == "Avoid Times" else 1))
+
     return {
         "summary_items": summary_items,
         "cards": schedule_items,
     }
 
 
-def build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+def build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context=None, routine_scheduler=None, personalization=None):
+    time_context = time_context or build_local_time_context(weather_to_show)
+    routine_scheduler = routine_scheduler or {}
+    personalization = get_personalization_profile(personalization)
     current = weather_to_show["current"]
-    today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
-    rain_chance = today.get("rain_chance", 0)
-    scores = calculate_weather_scores(weather_to_show)
-    current_temp_text = format_temperature_text(current["temperature"], temp_symbol, use_fahrenheit)
-    wind_text = format_wind_text(current["wind"], speed_symbol)
+    snapshot = resolve_context_snapshot(weather_to_show, time_context)
+    rain_chance = snapshot["rain_chance"]
+    scores = calculate_weather_scores(weather_to_show, time_context, personalization)
+    current_temp_text = format_temperature_text(snapshot["temperature"], temp_symbol, use_fahrenheit)
+    wind_text = format_wind_text(snapshot["wind"], speed_symbol)
+    schedule_cards = routine_scheduler.get("cards") or []
+    walking_window = next((item for item in schedule_cards if item.get("eyebrow") == "Walking"), None)
+    running_window = next((item for item in schedule_cards if item.get("eyebrow") == "Running"), None)
+    task_window = next((item for item in schedule_cards if item.get("eyebrow") == "Outdoor Tasks"), None)
+
+    def window_note(card, label="Best window"):
+        if not card or not card.get("title"):
+            return ""
+        return f" {label}: {card['title']}."
 
     if scores["outdoor"] >= 8:
-        walk_title = "Strong outdoor walk window"
-        walk_body = f"{current['condition']} conditions, {current_temp_text}, and {wind_text} support a comfortable walk for most people."
+        walk_title = "Good time for a walk"
+        walk_body = (
+            f"{time_context['phase_reference'].capitalize()}, {snapshot['condition'].lower()} air near {current_temp_text} with {wind_text} should feel easy for walking."
+            f"{window_note(walking_window)}"
+        )
     elif scores["outdoor"] >= 5:
-        walk_title = "Walks are still reasonable"
-        walk_body = f"Outdoor time can still work, but the mix of {current['condition'].lower()} conditions and a {rain_chance}% rain chance may affect timing."
+        walk_title = "Walking is better with timing"
+        walk_body = (
+            f"{time_context['phase_reference'].capitalize()}, walking still works, but the weather is less steady."
+            f"{window_note(walking_window)}"
+        )
     else:
-        walk_title = "Outdoor walks are not ideal"
-        walk_body = "The current weather setup makes longer outdoor walks less comfortable, so a shorter route or indoor option is smarter."
+        walk_title = "Walking can wait a bit"
+        walk_body = (
+            f"Longer walks look less comfortable {time_context['phase_reference']}."
+            f"{window_note(walking_window, 'Better window')}"
+        )
 
     if scores["comfort"] >= 8 and scores["outdoor"] >= 7:
-        exercise_title = "Outdoor exercise looks good"
-        exercise_body = "A walk, run, or lighter workout outside should feel reasonable as long as you stay hydrated."
+        exercise_title = "Outdoor exercise works well"
+        exercise_body = (
+            f"{time_context['phase_reference'].capitalize()} supports lighter outdoor effort without much friction."
+            f"{window_note(running_window, 'Best run window')}"
+        )
     elif scores["comfort"] >= 5:
-        exercise_title = "Keep exercise lighter"
-        exercise_body = "Shorter sessions, slower pacing, or an early or late time slot will feel better than hard midday effort."
+        exercise_title = "Keep exercise light"
+        exercise_body = (
+            f"{time_context['phase_reference'].capitalize()}, shorter sessions and steadier pacing will feel better."
+            f"{window_note(running_window, 'Best run window')}"
+        )
     else:
-        exercise_title = "Choose indoor exercise"
-        exercise_body = "Indoor training is the better call while the current weather is putting more strain on comfort."
+        exercise_title = "Indoor exercise has the edge"
+        exercise_body = (
+            f"Indoor training is the cleaner call {time_context['phase_reference']}."
+            f"{window_note(task_window, 'Cleaner outdoor block')}"
+        )
 
-    if scores["outdoor"] <= 5 or rain_chance >= 55 or current["condition"] in {"Thunderstorm", "Snowy"}:
-        indoor_title = "Indoor plan is the better backup"
-        indoor_body = "Indoor workouts, errands, reading spots, or cafe time are the smoother option if you want reliable comfort."
+    if scores["outdoor"] <= 5 or rain_chance >= 55 or snapshot["condition"] in {"Thunderstorm", "Snowy"}:
+        indoor_title = "Indoor plans look easier"
+        indoor_body = f"Use {time_context['phase_reference']} for indoor errands, study time, or cafe stops if you want the steadier option."
     else:
-        indoor_title = "Indoor backup is optional"
-        indoor_body = "You probably will not need to move plans indoors unless conditions shift later in the day."
+        indoor_title = "Indoor backup can stay light"
+        indoor_body = f"You likely will not need an indoor backup {time_context['phase_reference']} unless things shift into {time_context['next_phase_reference']}."
 
     if scores["travel"] >= 8:
-        travel_title = "Travel and movement look smooth"
-        travel_body = "Errands, short drives, and general movement should feel straightforward with little weather friction."
+        travel_title = "Travel looks smooth"
+        travel_body = f"Errands, short drives, and general movement should feel straightforward {time_context['phase_reference']}."
     elif scores["travel"] >= 5:
-        travel_title = "Allow a little extra time"
+        travel_title = "Leave a little extra time"
         travel_body = (
-            f"Movement still works, but {current['condition'].lower()} conditions and a {rain_chance}% rain chance may slow parts of the day."
+            f"Movement still works {time_context['phase_reference']}, but conditions may slow parts of the route."
         )
-    elif current["condition"] == "Foggy":
-        travel_title = "Visibility can slow movement"
-        travel_body = f"Fog and about {current['visibility']} km visibility can make driving and cycling feel less relaxed than usual."
+    elif snapshot["condition"] == "Foggy":
+        travel_title = "Visibility can slow travel"
+        travel_body = f"Fog and about {current['visibility']} km visibility can make driving and cycling feel less relaxed {time_context['phase_reference']}."
     else:
-        travel_title = "Weather can disrupt movement"
-        travel_body = "Short trips are still possible, but rain, wind, or rougher conditions make movement less convenient."
+        travel_title = "Movement may feel rougher"
+        travel_body = f"Short trips are still possible, but rougher weather makes movement less convenient {time_context['phase_reference']}."
+
+    cards = [
+        {"item_id": "walking", "eyebrow": "Walking", "title": walk_title, "body": walk_body, "icon": "\U0001f6b6"},
+        {"item_id": "running", "eyebrow": "Outdoor Exercise", "title": exercise_title, "body": exercise_body, "icon": "\U0001f3c3"},
+        {"item_id": "indoor_backup", "eyebrow": "Indoor Backup", "title": indoor_title, "body": indoor_body, "icon": "\U0001f3e0"},
+        {"item_id": "travel", "eyebrow": "Travel / Movement", "title": travel_title, "body": travel_body, "icon": "\U0001f9ed"},
+    ]
+
+    focus_key = personalization.get("activity_focus_key")
+    if focus_key in {"walking", "running"}:
+        cards.sort(key=lambda item: (0 if item.get("item_id") == focus_key else 1))
+
+    return cards
+
+
+def build_clothing_quick_read(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit, personalization=None):
+    personalization = get_personalization_profile(personalization)
+    snapshot = resolve_context_snapshot(weather_to_show, time_context)
+    current_temp_text = format_temperature_text(snapshot["temperature"], temp_symbol, use_fahrenheit)
+    shift_text = describe_temperature_shift(time_context, temp_symbol, use_fahrenheit)
+
+    extras = []
+    if snapshot["rain_chance"] >= 45 or snapshot["rain_total"] >= 0.2:
+        extras.append("umbrella")
+    if time_context["phase_key"] in {"morning", "afternoon"} and weather_to_show["forecast"][0].get("uv_index", 0) >= 6:
+        extras.append("sun protection")
+    if snapshot["wind"] >= 25:
+        extras.append("a wind-ready outer layer")
+    if snapshot["temperature"] <= 10:
+        extras.append("a warmer layer")
+    extra_text = ", ".join(extras) if extras else "no heavy extras"
+
+    style_note = {
+        "casual": "Keep the look relaxed and easy.",
+        "sporty": "Keep the look easy to move in.",
+        "smart_casual": "Keep the look a little sharper.",
+    }.get(personalization["outfit_vibe_key"], "Keep the look easy to adapt.")
+    temperature_note = {
+        "I run cold": "Since you tend to run cold, lean one layer warmer.",
+        "I run warm": "Since you tend to run warm, keep bulk under control.",
+    }.get(personalization["temperature_preference"], "")
 
     return [
-        {"eyebrow": "Walking", "title": walk_title, "body": walk_body, "icon": "\U0001f6b6"},
-        {"eyebrow": "Outdoor Exercise", "title": exercise_title, "body": exercise_body, "icon": "\U0001f3c3"},
-        {"eyebrow": "Indoor Backup", "title": indoor_title, "body": indoor_body, "icon": "\U0001f3e0"},
-        {"eyebrow": "Travel / Movement", "title": travel_title, "body": travel_body, "icon": "\U0001f9ed"},
+        {
+            "title": "Wear Right Now",
+            "body": f"{time_context['phase_reference'].capitalize()}, dress around {snapshot['condition'].lower()} conditions near {current_temp_text}. {style_note}",
+        },
+        {
+            "title": "What Changes Next",
+            "body": f"{time_context['next_phase_reference'].capitalize()}, {shift_text} so your outfit should stay flexible instead of locked to one moment.",
+        },
+        {
+            "title": "Keep Ready",
+            "body": f"Carry {extra_text} if you want the outfit to stay useful without a full change later on. {temperature_note}".strip(),
+        },
     ]
 
 
-def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+def build_time_slot_clothing_plan(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit):
+    hourly_entries = collect_hourly_forecast_points(weather_to_show, limit_days=2)
+    if not hourly_entries:
+        return []
+
+    reference_dt = time_context["reference_now"]
+    timeline_reference = reference_dt.replace(minute=0, second=0, microsecond=0)
+    timeline_items = []
+    for slot in TIME_SLOT_CONFIG:
+        matching_entry = next(
+            (entry for entry in hourly_entries if entry[0] >= timeline_reference and get_time_phase(entry[0].hour)["key"] == slot["key"]),
+            None,
+        )
+        if not matching_entry:
+            matching_entry = next((entry for entry in hourly_entries if get_time_phase(entry[0].hour)["key"] == slot["key"]), None)
+        if not matching_entry:
+            continue
+
+        slot_dt, slot_point = matching_entry
+        relative_day = get_relative_day_label(slot_dt.date(), reference_dt.date())
+        if relative_day == "Today":
+            if slot["key"] == "night":
+                slot_reference = "tonight"
+                slot_title = "Tonight"
+            else:
+                slot_reference = slot["reference"]
+                slot_title = slot["label"]
+        elif relative_day == "Tomorrow":
+            slot_reference = "tomorrow night" if slot["key"] == "night" else f"tomorrow {slot['label'].lower()}"
+            slot_title = f"Tomorrow {'Night' if slot['key'] == 'night' else slot['label']}"
+        else:
+            day_reference = relative_day.lower()
+            slot_reference = f"{day_reference} night" if slot["key"] == "night" else f"{day_reference} {slot['label'].lower()}"
+            slot_title = f"{relative_day} {'Night' if slot['key'] == 'night' else slot['label']}"
+        slot_temp_text = format_temperature_text(slot_point["temperature"], temp_symbol, use_fahrenheit)
+        slot_rain = slot_point.get("rain_chance", 0)
+        slot_uv = weather_to_show["forecast"][0].get("uv_index", 0) if slot["key"] in {"morning", "afternoon"} else 0
+
+        if slot_point["temperature"] >= 28:
+            body = f"{slot_reference.capitalize()} leans hot around {slot_temp_text}, so stay on breathable pieces and reduce bulk."
+        elif slot_point["temperature"] >= 18:
+            body = f"{slot_reference.capitalize()} stays balanced near {slot_temp_text}, so light layers with full-day flexibility make the most sense."
+        elif slot_point["temperature"] >= 10:
+            body = f"{slot_reference.capitalize()} cools to about {slot_temp_text}, so a knit, overshirt, or light outer layer starts to matter."
+        else:
+            body = f"{slot_reference.capitalize()} drops near {slot_temp_text}, so warmer layers and more coverage become the smarter move."
+
+        if slot_rain >= 45:
+            body += f" Rain risk is around {slot_rain}%, so keep the look weather-ready."
+        elif slot_point.get("wind", 0) >= 25:
+            body += f" Wind near {format_wind_text(slot_point['wind'], speed_symbol)} can make lighter pieces feel thinner."
+        elif slot_uv >= 6:
+            body += f" UV is still high in this block, so sun protection is part of the outfit."
+
+        visual_bundle = get_clothing_visual_bundle_for_conditions(
+            slot["visual_slot"],
+            slot_point["temperature"],
+            slot_rain,
+            slot_uv,
+            slot_point.get("wind", 0),
+            slot_point.get("rain_total", 0),
+            slot_point.get("condition", ""),
+        )
+
+        timeline_items.append(
+            (
+                slot_dt,
+                {
+                    "item_id": f"time-{slot['key']}",
+                    "eyebrow": slot["eyebrow"],
+                    "title": slot_title,
+                    "body": body,
+                    "icon": slot["icon"],
+                    "visual_profile": visual_bundle["profile_key"],
+                    "variants": visual_bundle["variants"],
+                    "preferred_variant_index": slot["preferred_variant_index"],
+                },
+            )
+        )
+
+    timeline_items.sort(key=lambda entry: entry[0])
+    return [item for _, item in timeline_items]
+
+
+def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context=None, personalization=None):
+    time_context = time_context or build_local_time_context(weather_to_show)
+    personalization = get_personalization_profile(personalization)
     current = weather_to_show["current"]
     today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
-    current_temp = current["temperature"]
-    rain_chance = today.get("rain_chance", 0)
-    uv_index = today.get("uv_index", 0)
-    wind_speed = current["wind"]
-    precipitation = current.get("precipitation", 0)
+    snapshot = resolve_context_snapshot(weather_to_show, time_context)
+    current_temp = apply_temperature_preference(snapshot["temperature"], personalization)
+    rain_chance = snapshot["rain_chance"]
+    uv_index = today.get("uv_index", 0) if time_context["phase_key"] in {"morning", "afternoon"} else 0
+    wind_speed = snapshot["wind"]
+    precipitation = max(snapshot["rain_total"], current.get("precipitation", 0))
+    shift_text = describe_temperature_shift(time_context, temp_symbol, use_fahrenheit)
 
     if current_temp >= 28:
-        tops_body = "Choose a breathable T-shirt, airy short-sleeve shirt, or sleeveless layer to stay cooler through the warmest hours."
-        bottoms_body = "Shorts or lightweight trousers will feel better than heavy denim or anything restrictive."
+        tops_body = f"{time_context['phase_reference'].capitalize()}, breathable tees, polos, or airy short sleeves make the most sense. {shift_text.capitalize()} later, so keep the outfit easy to vent."
+        bottoms_body = "Shorts or lightweight trousers will feel better than heavy denim while the warmer part of the day still holds."
     elif current_temp >= 18:
-        tops_body = "A light tee, polo, or breathable long-sleeve top gives enough flexibility for the day."
-        bottoms_body = "Light jeans, chinos, or relaxed full-length pants should stay comfortable from morning to evening."
+        tops_body = f"{time_context['phase_reference'].capitalize()}, a light tee, polo, or breathable long-sleeve top gives enough flexibility. {shift_text.capitalize()} without demanding a full outfit change."
+        bottoms_body = "Light jeans, chinos, or relaxed full-length pants should stay comfortable while the day remains balanced."
     elif current_temp >= 10:
-        tops_body = "A long-sleeve top, knit, or tee with a mid-layer will handle the cooler air better."
-        bottoms_body = "Full-length pants are the safer base, especially if the breeze picks up."
+        tops_body = f"{time_context['phase_reference'].capitalize()}, a long-sleeve top, knit, or tee with a mid-layer will handle the cooler air better. {shift_text.capitalize()} over the next hours."
+        bottoms_body = "Full-length pants are the safer base, especially once the breeze or the later temperature drop becomes more noticeable."
     else:
-        tops_body = "Use a warmer knit, thermal base, or heavier long-sleeve layer to hold heat more effectively."
-        bottoms_body = "Heavier pants or lined trousers will feel more balanced than lightweight fabrics."
+        tops_body = f"{time_context['phase_reference'].capitalize()}, use a warmer knit, thermal base, or heavier long-sleeve layer to hold heat more effectively."
+        bottoms_body = "Heavier pants or lined trousers will feel more balanced than lightweight fabrics while the colder air is active."
 
     if current_temp < 12 or wind_speed >= 25 or rain_chance >= 45:
-        outer_title = "Keep an outer layer ready"
-        outer_body = f"A jacket, shell, or wind-resistant layer will help when wind reaches {format_wind_text(wind_speed, speed_symbol)} or showers move in."
+        outer_title = f"Outerwear matters {time_context['phase_reference']}"
+        outer_body = (
+            f"A jacket, shell, or wind-resistant layer will help while wind reaches {format_wind_text(wind_speed, speed_symbol)} "
+            f"or showers push rain risk toward {rain_chance}%."
+        )
+    elif time_context["temp_trend"] == "cooling":
+        outer_title = f"Layer for {time_context['next_phase_reference']}"
+        outer_body = f"Outerwear can stay light right now, but keep a cardigan, overshirt, or packable layer ready because {shift_text}."
     else:
         outer_title = "Outerwear can stay light"
-        outer_body = "A cardigan, overshirt, or packable layer is enough unless you tend to get cold easily."
+        outer_body = f"A cardigan, overshirt, or packable layer is enough {time_context['phase_reference']} unless you tend to get cold easily."
 
-    if current["condition"] in {"Rainy", "Snowy"} or precipitation >= 0.2:
-        shoes_body = "Closed shoes with decent grip are the safer choice for damp ground and changing surfaces."
+    if snapshot["condition"] in {"Rainy", "Snowy"} or precipitation >= 0.2:
+        shoes_body = f"Closed shoes with decent grip are the safer choice while surfaces stay damp {time_context['phase_reference']}."
     elif current_temp >= 28 and rain_chance < 20:
         shoes_body = "Breathable sneakers or comfortable sandals work well if you are mostly staying on dry ground."
     else:
-        shoes_body = "Comfortable sneakers or everyday closed shoes are the easiest all-day choice."
+        shoes_body = f"Comfortable sneakers or everyday closed shoes are the easiest choice for this {time_context['phase_label'].lower()} block."
 
     accessory_notes = []
-    if uv_index >= 6 or (current["condition"] == "Sunny" and rain_chance < 20):
+    if uv_index >= 6 or (snapshot["condition"] == "Sunny" and rain_chance < 20 and time_context["phase_key"] in {"morning", "afternoon"}):
         accessory_notes.append("sunglasses or a cap for sun exposure")
-    if current_temp < 10:
-        accessory_notes.append("a scarf or warmer accessory for the cooler air")
+    if current_temp < 10 or time_context["phase_key"] == "night":
+        accessory_notes.append("a scarf or warmer extra for the cooler air")
     if wind_speed >= 25:
         accessory_notes.append("secure accessories that will not shift in the breeze")
     if not accessory_notes:
@@ -906,31 +1619,36 @@ def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, u
     add_ons = []
     if rain_chance >= 45 or precipitation >= 0.2:
         add_ons.append("Umbrella")
-    if uv_index >= 6 or (current["condition"] == "Sunny" and rain_chance < 20):
+    if uv_index >= 6 or (snapshot["condition"] == "Sunny" and rain_chance < 20 and time_context["phase_key"] in {"morning", "afternoon"}):
         add_ons.append("Sunscreen")
     if wind_speed >= 30:
         add_ons.append("Wind-resistant layer")
-    if current["condition"] in {"Rainy", "Snowy"}:
+    if snapshot["condition"] in {"Rainy", "Snowy"}:
         add_ons.append("Water-resistant bag or cover")
     if not add_ons:
-        add_ons.append("No special extras stand out today")
+        add_ons.append("No special extras stand out right now")
 
-    tops_visual = get_clothing_visual_bundle("tops", weather_to_show)
-    bottoms_visual = get_clothing_visual_bundle("bottoms", weather_to_show)
-    outerwear_visual = get_clothing_visual_bundle("outerwear", weather_to_show)
-    shoes_visual = get_clothing_visual_bundle("shoes", weather_to_show)
-    accessories_visual = get_clothing_visual_bundle("accessories", weather_to_show)
-    add_ons_visual = get_clothing_visual_bundle("weather_add_ons", weather_to_show)
+    tops_visual = get_clothing_visual_bundle_for_conditions("tops", current_temp, rain_chance, uv_index, wind_speed, precipitation, snapshot["condition"])
+    bottoms_visual = get_clothing_visual_bundle_for_conditions("bottoms", current_temp, rain_chance, uv_index, wind_speed, precipitation, snapshot["condition"])
+    outerwear_visual = get_clothing_visual_bundle_for_conditions("outerwear", current_temp, rain_chance, uv_index, wind_speed, precipitation, snapshot["condition"])
+    shoes_visual = get_clothing_visual_bundle_for_conditions("shoes", current_temp, rain_chance, uv_index, wind_speed, precipitation, snapshot["condition"])
+    accessories_visual = get_clothing_visual_bundle_for_conditions("accessories", current_temp, rain_chance, uv_index, wind_speed, precipitation, snapshot["condition"])
+    add_ons_visual = get_clothing_visual_bundle_for_conditions("weather_add_ons", current_temp, rain_chance, uv_index, wind_speed, precipitation, snapshot["condition"])
+
+    def preferred_index(item_id, variants):
+        phase_index = get_base_outfit_variant_index(item_id, time_context["phase_key"])
+        return choose_style_preferred_variant_index(variants, phase_index, personalization["outfit_vibe_key"])
 
     return [
         {
             "item_id": "tops",
             "eyebrow": "Tops",
-            "title": "Top layers",
+            "title": f"Top layers for {time_context['phase_reference']}",
             "body": tops_body,
             "icon": "\U0001f455",
             "visual_profile": tops_visual["profile_key"],
             "variants": tops_visual["variants"],
+            "preferred_variant_index": preferred_index("tops", tops_visual["variants"]),
         },
         {
             "item_id": "bottoms",
@@ -940,6 +1658,7 @@ def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, u
             "icon": "\U0001f456",
             "visual_profile": bottoms_visual["profile_key"],
             "variants": bottoms_visual["variants"],
+            "preferred_variant_index": preferred_index("bottoms", bottoms_visual["variants"]),
         },
         {
             "item_id": "outerwear",
@@ -949,6 +1668,7 @@ def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, u
             "icon": "\U0001f9e5",
             "visual_profile": outerwear_visual["profile_key"],
             "variants": outerwear_visual["variants"],
+            "preferred_variant_index": preferred_index("outerwear", outerwear_visual["variants"]),
         },
         {
             "item_id": "shoes",
@@ -958,6 +1678,7 @@ def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, u
             "icon": "\U0001f45f",
             "visual_profile": shoes_visual["profile_key"],
             "variants": shoes_visual["variants"],
+            "preferred_variant_index": preferred_index("shoes", shoes_visual["variants"]),
         },
         {
             "item_id": "accessories",
@@ -967,6 +1688,7 @@ def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, u
             "icon": "\U0001f9e2",
             "visual_profile": accessories_visual["profile_key"],
             "variants": accessories_visual["variants"],
+            "preferred_variant_index": preferred_index("accessories", accessories_visual["variants"]),
         },
         {
             "item_id": "weather-add-ons",
@@ -976,6 +1698,7 @@ def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, u
             "icon": "\u2602\ufe0f",
             "visual_profile": add_ons_visual["profile_key"],
             "variants": add_ons_visual["variants"],
+            "preferred_variant_index": preferred_index("weather-add-ons", add_ons_visual["variants"]),
         },
     ]
 
@@ -983,22 +1706,54 @@ def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, u
 def build_weather_intelligence_payload(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
     current = weather_to_show["current"]
     today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    time_context = build_local_time_context(weather_to_show)
+    personalization = get_personalization_profile()
+    routine_scheduler = build_daily_routine_scheduler(
+        weather_to_show,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+        time_context,
+        personalization,
+    )
+    clothing_cards = build_clothing_recommendations(
+        weather_to_show,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+        time_context,
+        personalization,
+    )
 
     return {
         "city": city_to_show or weather_to_show.get("resolved_city") or "Selected location",
         "condition": current["condition"],
+        "time_context": {
+            "phase_label": time_context["phase_label"],
+            "phase_reference": time_context["phase_reference"],
+            "next_phase_reference": time_context["next_phase_reference"],
+            "local_time_label": time_context["local_time_label"],
+            "local_day_label": time_context["local_day_label"],
+            "time_note": (
+                f"It is {time_context['local_time_label']} on {time_context['local_day_label']} there, "
+                f"so guidance is weighted toward {time_context['phase_reference']} instead of a generic all-day read."
+            ),
+        },
+        "personalization": personalization,
         "hero_stats": [
             {"label": "Current", "value": format_temperature_text(current["temperature"], temp_symbol, use_fahrenheit)},
             {"label": "Feels Like", "value": format_temperature_text(current["feels_like"], temp_symbol, use_fahrenheit)},
             {"label": "Rain Chance", "value": f"{today.get('rain_chance', 0)}%"},
             {"label": "Wind", "value": format_wind_text(current["wind"], speed_symbol)},
         ],
-        "scores": build_weather_score_cards(weather_to_show),
-        "alerts": build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
-        "insights": build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
-        "routine_scheduler": build_daily_routine_scheduler(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
-        "activities": build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
-        "clothing": build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
+        "scores": build_weather_score_cards(weather_to_show, time_context, personalization),
+        "alerts": build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context, personalization),
+        "insights": build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context),
+        "routine_scheduler": routine_scheduler,
+        "activities": build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context, routine_scheduler, personalization),
+        "clothing": clothing_cards,
+        "clothing_quick_read": build_clothing_quick_read(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit, personalization),
+        "clothing_timeline": build_time_slot_clothing_plan(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit),
     }
 
 
@@ -1085,13 +1840,19 @@ def remember_recent_search(weather):
     )
 
 
-def build_preferences_payload():
+def build_preferences_payload(prompt_status=None, remind_after=None):
     return {
         "temp_unit": st.session_state.get("temp_unit", TEMP_OPTIONS[0]),
         "speed_unit": st.session_state.get("speed_unit", SPEED_OPTIONS[0]),
         "weather_map_layer": st.session_state.get("weather_map_layer", MAP_LAYER_OPTIONS[0]),
         "last_selected_city": st.session_state.get("last_city_display") or st.session_state.get("search_query") or "Dubai",
         "recent_searches": st.session_state.get("recent_searches", []),
+        "personal_activity_focus": st.session_state.get("personal_activity_focus", PERSONAL_ACTIVITY_OPTIONS[0]),
+        "personal_preferred_time": st.session_state.get("personal_preferred_time", PERSONAL_TIME_OPTIONS[0]),
+        "personal_temperature_preference": st.session_state.get("personal_temperature_preference", PERSONAL_TEMPERATURE_OPTIONS[0]),
+        "personal_outfit_vibe": st.session_state.get("personal_outfit_vibe", PERSONAL_OUTFIT_OPTIONS[0]),
+        "personalization_prompt_status": prompt_status if prompt_status is not None else st.session_state.get("personalization_prompt_status", PERSONALIZATION_PROMPT_PENDING),
+        "personalization_remind_after": remind_after if remind_after is not None else st.session_state.get("personalization_remind_after", ""),
     }
 
 
@@ -1099,6 +1860,79 @@ def sync_settings_draft_state():
     st.session_state["settings_temp_unit_choice"] = st.session_state.get("temp_unit", TEMP_OPTIONS[0])
     st.session_state["settings_speed_unit_choice"] = st.session_state.get("speed_unit", SPEED_OPTIONS[0])
     st.session_state["settings_map_layer_choice"] = st.session_state.get("weather_map_layer", MAP_LAYER_OPTIONS[0])
+    sync_personalization_draft_state("settings")
+
+
+def render_personalization_controls(key_prefix):
+    top_row = st.columns(2)
+    with top_row[0]:
+        st.selectbox(
+            "Main activity focus",
+            PERSONAL_ACTIVITY_OPTIONS,
+            key=f"{key_prefix}_activity_focus_choice",
+            help="This shifts which time blocks and guidance the app puts first.",
+        )
+    with top_row[1]:
+        st.selectbox(
+            "Best time of day",
+            PERSONAL_TIME_OPTIONS,
+            key=f"{key_prefix}_preferred_time_choice",
+            help="This gives the scheduler a gentle push toward the hours you usually care about most.",
+        )
+
+    lower_row = st.columns(2)
+    with lower_row[0]:
+        st.selectbox(
+            "Temperature preference",
+            PERSONAL_TEMPERATURE_OPTIONS,
+            key=f"{key_prefix}_temperature_preference_choice",
+            help="Use this if you usually feel colder or warmer than other people in the same weather.",
+        )
+    with lower_row[1]:
+        st.selectbox(
+            "Outfit vibe",
+            PERSONAL_OUTFIT_OPTIONS,
+            key=f"{key_prefix}_outfit_vibe_choice",
+            help="This nudges the base outfit visuals toward a more casual, sporty, or sharper direction.",
+        )
+
+
+def save_personalization_choices(key_prefix, prompt_status=PERSONALIZATION_PROMPT_SAVED, remind_after=""):
+    apply_personalization_draft_state(key_prefix)
+    st.session_state["personalization_prompt_status"] = prompt_status
+    st.session_state["personalization_remind_after"] = remind_after
+    save_user_preferences(build_preferences_payload(prompt_status=prompt_status, remind_after=remind_after))
+
+
+def render_personalization_panel():
+    inject_dialog_surface("skyline-personalization-dialog-anchor", "min(86vw, 840px)")
+    st.markdown("**Make Skyline Forecast feel more like your app**")
+    st.caption(
+        "A few quick choices help activity timing, clothing guidance, and summary cards lean toward the way you actually plan your day. "
+        "These preferences are saved locally on this device."
+    )
+    render_personalization_controls("personalization")
+    st.caption("You can change these anytime from the settings gear.")
+
+    action_columns = st.columns(3)
+    with action_columns[0]:
+        if st.button("Save Personalization", key="save_personalization_button", type="primary", use_container_width=True):
+            save_personalization_choices("personalization", PERSONALIZATION_PROMPT_SAVED, "")
+            st.success("Personalization saved.")
+            st.rerun()
+    with action_columns[1]:
+        if st.button("Remind Me Later", key="remind_personalization_button", type="secondary", use_container_width=True):
+            remind_after = (date.today() + timedelta(days=1)).isoformat()
+            st.session_state["personalization_prompt_status"] = PERSONALIZATION_PROMPT_LATER
+            st.session_state["personalization_remind_after"] = remind_after
+            save_user_preferences(build_preferences_payload(prompt_status=PERSONALIZATION_PROMPT_LATER, remind_after=remind_after))
+            st.rerun()
+    with action_columns[2]:
+        if st.button("Never Show Again", key="hide_personalization_button", type="secondary", use_container_width=True):
+            st.session_state["personalization_prompt_status"] = PERSONALIZATION_PROMPT_HIDDEN
+            st.session_state["personalization_remind_after"] = ""
+            save_user_preferences(build_preferences_payload(prompt_status=PERSONALIZATION_PROMPT_HIDDEN, remind_after=""))
+            st.rerun()
 
 
 def sanitize_export_filename(value):
@@ -2621,6 +3455,14 @@ def initialize_session_state():
         "trip_planner_end_date": get_default_trip_planner_dates()[1],
         "trip_planner_error": "",
         "preferences_loaded": False,
+        "personal_activity_focus": PERSONAL_ACTIVITY_OPTIONS[0],
+        "personal_preferred_time": PERSONAL_TIME_OPTIONS[0],
+        "personal_temperature_preference": PERSONAL_TEMPERATURE_OPTIONS[0],
+        "personal_outfit_vibe": PERSONAL_OUTFIT_OPTIONS[0],
+        "personalization_prompt_status": PERSONALIZATION_PROMPT_PENDING,
+        "personalization_remind_after": "",
+        "show_personalization_dialog": False,
+        "personalization_prompt_evaluated": False,
         "active_content_section": CONTENT_SECTIONS[0],
         "nav_layout_bootstrap_done": False,
     }
@@ -2635,11 +3477,21 @@ def initialize_session_state():
         st.session_state["speed_unit"] = saved_preferences.get("speed_unit", st.session_state["speed_unit"])
         st.session_state["weather_map_layer"] = saved_preferences.get("weather_map_layer", st.session_state["weather_map_layer"])
         st.session_state["recent_searches"] = normalize_recent_searches(saved_preferences.get("recent_searches", []))
+        st.session_state["personal_activity_focus"] = saved_preferences.get("personal_activity_focus", st.session_state["personal_activity_focus"])
+        st.session_state["personal_preferred_time"] = saved_preferences.get("personal_preferred_time", st.session_state["personal_preferred_time"])
+        st.session_state["personal_temperature_preference"] = saved_preferences.get("personal_temperature_preference", st.session_state["personal_temperature_preference"])
+        st.session_state["personal_outfit_vibe"] = saved_preferences.get("personal_outfit_vibe", st.session_state["personal_outfit_vibe"])
+        st.session_state["personalization_prompt_status"] = saved_preferences.get("personalization_prompt_status", st.session_state["personalization_prompt_status"])
+        st.session_state["personalization_remind_after"] = saved_preferences.get("personalization_remind_after", st.session_state["personalization_remind_after"])
         last_selected_city = saved_preferences.get("last_selected_city")
         if last_selected_city:
             st.session_state["city_input_value"] = last_selected_city
             st.session_state["search_query"] = last_selected_city
         st.session_state["preferences_loaded"] = True
+
+    if not st.session_state.get("personalization_prompt_evaluated"):
+        st.session_state["show_personalization_dialog"] = should_show_personalization_prompt()
+        st.session_state["personalization_prompt_evaluated"] = True
 
     saved_state = load_last_weather_state()
     if "last_weather" not in st.session_state and saved_state:
@@ -2909,10 +3761,33 @@ def render_settings_panel():
         st.caption("Recent searches are saved automatically and prioritized in the main search suggestions.")
         st.caption("Recent: " + " | ".join(recent_labels))
 
+    st.divider()
+    st.markdown("**Personalization**")
+    st.caption("These choices tune the scheduler, activity emphasis, and what-to-wear guidance.")
+    render_personalization_controls("settings")
+    st.caption(describe_personalization_summary(get_personalization_profile(get_personalization_draft_values("settings"))))
+
+    personalization_actions = st.columns(2)
+    with personalization_actions[0]:
+        if st.button("Open Guided Personalization", key="open_personalization_dialog_from_settings", type="secondary", use_container_width=True):
+            sync_personalization_draft_state("personalization")
+            st.session_state["show_personalization_dialog"] = True
+            st.rerun()
+    with personalization_actions[1]:
+        if st.button("Disable Startup Popup", key="disable_personalization_prompt_button", type="secondary", use_container_width=True):
+            st.session_state["personalization_prompt_status"] = PERSONALIZATION_PROMPT_HIDDEN
+            st.session_state["personalization_remind_after"] = ""
+            save_user_preferences(build_preferences_payload(prompt_status=PERSONALIZATION_PROMPT_HIDDEN, remind_after=""))
+            st.success("Startup personalization popup disabled.")
+            st.rerun()
+
     if st.button("Save Preferences", key="save_preferences_button", type="primary", use_container_width=True):
         st.session_state["temp_unit"] = st.session_state["settings_temp_unit_choice"]
         st.session_state["speed_unit"] = st.session_state["settings_speed_unit_choice"]
         st.session_state["weather_map_layer"] = st.session_state["settings_map_layer_choice"]
+        apply_personalization_draft_state("settings")
+        st.session_state["personalization_prompt_status"] = PERSONALIZATION_PROMPT_SAVED
+        st.session_state["personalization_remind_after"] = ""
         save_user_preferences(build_preferences_payload())
         st.success("Preferences saved.")
         st.rerun()
@@ -2930,6 +3805,19 @@ def open_settings():
     else:
         with st.popover("Settings", use_container_width=True):
             render_settings_panel()
+
+
+def open_personalization_dialog():
+    sync_personalization_draft_state("personalization")
+    if hasattr(st, "dialog"):
+        @st.dialog("Personalize Skyline Forecast")
+        def personalization_dialog():
+            render_personalization_panel()
+
+        personalization_dialog()
+    else:
+        with st.popover("Personalize Skyline Forecast", use_container_width=True):
+            render_personalization_panel()
 
 
 def render_export_dialog_panel(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
@@ -3289,6 +4177,9 @@ def render_header_section(weather_to_show, city_to_show, temp_symbol, speed_symb
     if st.session_state.get("show_settings_dialog"):
         st.session_state["show_settings_dialog"] = False
         open_settings()
+    if st.session_state.get("show_personalization_dialog"):
+        st.session_state["show_personalization_dialog"] = False
+        open_personalization_dialog()
 
 
 # Current conditions keeps the common data always visible.
@@ -3362,19 +4253,38 @@ def build_overview_preview_items(intelligence_payload):
     preview_items = []
     activity_items = intelligence_payload.get("activities", [])
     clothing_items = intelligence_payload.get("clothing", [])
+    clothing_quick_read = intelligence_payload.get("clothing_quick_read") or []
+    routine_items = (intelligence_payload.get("routine_scheduler") or {}).get("summary_items", [])
+    personalization = get_personalization_profile(intelligence_payload.get("personalization"))
+    focus_title = PERSONAL_ROUTINE_TITLE_MAP.get(personalization.get("activity_focus_key"))
+    focus_item = next((item for item in routine_items if item.get("title") == focus_title), None)
 
-    if activity_items:
+    if focus_item:
         preview_items.append(
             {
-                "title": activity_items[0]["eyebrow"],
-                "body": activity_items[0]["body"],
+                "title": "🎯 Your Focus",
+                "body": tighten_preview_copy(focus_item["body"], max_length=112),
             }
         )
-    if clothing_items:
+    elif activity_items:
         preview_items.append(
             {
-                "title": clothing_items[0]["eyebrow"],
-                "body": clothing_items[0]["body"],
+                "title": "🚶 Walking",
+                "body": tighten_preview_copy(activity_items[0]["body"], max_length=112),
+            }
+        )
+    if clothing_quick_read:
+        preview_items.append(
+            {
+                "title": "👕 What To Wear",
+                "body": tighten_preview_copy(clothing_quick_read[0]["body"], max_length=110),
+            }
+        )
+    elif clothing_items:
+        preview_items.append(
+            {
+                "title": "👕 What To Wear",
+                "body": tighten_preview_copy(clothing_items[0]["body"], max_length=110),
             }
         )
 
@@ -3406,17 +4316,22 @@ def build_insights_quick_read_items(intelligence_payload):
     insights = intelligence_payload.get("insights", [])
     trend_card = next((item for item in insights if item.get("eyebrow") == "Forecast Trend"), None)
     if trend_card:
-        quick_items.append({"title": "Forecast Trend", "body": trend_card["body"]})
+        quick_items.append({"title": "📈 Forecast Trend", "body": tighten_preview_copy(trend_card["body"], max_length=118)})
 
     routine_scheduler = intelligence_payload.get("routine_scheduler") or {}
     routine_items = routine_scheduler.get("summary_items", [])
+    personalization = get_personalization_profile(intelligence_payload.get("personalization"))
+    focus_title = PERSONAL_ROUTINE_TITLE_MAP.get(personalization.get("activity_focus_key"))
+    focus_item = next((item for item in routine_items if item.get("title") == focus_title), None)
     walking_item = next((item for item in routine_items if item.get("title") == "Walking"), None)
-    if walking_item:
-        quick_items.append({"title": "Best Outdoor Window", "body": walking_item["body"]})
+    if focus_item:
+        quick_items.append({"title": "🎯 Your Focus", "body": tighten_preview_copy(focus_item["body"], max_length=108)})
+    elif walking_item:
+        quick_items.append({"title": "🌤️ Best Outdoor Window", "body": tighten_preview_copy(walking_item["body"], max_length=108)})
 
     avoid_item = next((item for item in routine_items if item.get("title") == "Avoid Times"), None)
     if avoid_item and "No major avoid window" not in avoid_item.get("body", ""):
-        quick_items.append({"title": "Watch First", "body": avoid_item["body"]})
+        quick_items.append({"title": "⚠️ Watch First", "body": tighten_preview_copy(avoid_item["body"], max_length=108)})
     else:
         scores = intelligence_payload.get("scores", [])
         if scores:
@@ -3425,8 +4340,8 @@ def build_insights_quick_read_items(intelligence_payload):
             if weakest_score.get("value", 0) <= 6:
                 quick_items.append(
                     {
-                        "title": "Main Watch-Out",
-                        "body": (
+                        "title": "⚠️ Main Watch-Out",
+                        "body": tighten_preview_copy(
                             f"{weakest_score['label']} is the softer signal at {weakest_score['value']}/10. "
                             f"{weakest_score['summary']}"
                         ),
@@ -3435,8 +4350,8 @@ def build_insights_quick_read_items(intelligence_payload):
             else:
                 quick_items.append(
                     {
-                        "title": "Current Edge",
-                        "body": (
+                        "title": "✨ Current Edge",
+                        "body": tighten_preview_copy(
                             f"{strongest_score['label']} leads at {strongest_score['value']}/10. "
                             f"{strongest_score['summary']}"
                         ),
@@ -3449,21 +4364,32 @@ def build_insights_quick_read_items(intelligence_payload):
 def build_activities_quick_read_items(intelligence_payload):
     quick_items = []
     activities = intelligence_payload.get("activities", [])
-    if activities:
-        quick_items.append({"title": "Walking", "body": activities[0]["body"]})
-    if len(activities) > 1:
-        quick_items.append({"title": "Outdoor Effort", "body": activities[1]["body"]})
-    if len(activities) > 3:
-        quick_items.append({"title": "Travel", "body": activities[3]["body"]})
+    activity_map = {item.get("item_id"): item for item in activities}
+    routine_items = (intelligence_payload.get("routine_scheduler") or {}).get("summary_items", [])
+    personalization = get_personalization_profile(intelligence_payload.get("personalization"))
+    focus_title = PERSONAL_ROUTINE_TITLE_MAP.get(personalization.get("activity_focus_key"))
+    focus_item = next((item for item in routine_items if item.get("title") == focus_title), None)
+    if focus_item:
+        quick_items.append({"title": "🎯 Your Focus", "body": tighten_preview_copy(focus_item["body"], max_length=108)})
+    walking_item = activity_map.get("walking")
+    running_item = activity_map.get("running")
+    travel_item = activity_map.get("travel")
+    if walking_item:
+        quick_items.append({"title": "🚶 Walking", "body": tighten_preview_copy(walking_item["body"], max_length=108)})
+    if running_item:
+        quick_items.append({"title": "🏃 Outdoor Effort", "body": tighten_preview_copy(running_item["body"], max_length=108)})
+    if travel_item:
+        quick_items.append({"title": "🧭 Travel", "body": tighten_preview_copy(travel_item["body"], max_length=108)})
     return quick_items[:3]
 
 
 def render_overview_tab(weather_to_show, intelligence_payload, city_to_show, temp_symbol, use_fahrenheit):
+    time_context = intelligence_payload.get("time_context") or {}
     render_weather_alert_banner(intelligence_payload.get("alerts", []))
     render_soft_section_divider()
     render_insight_section_header(
         "Overview",
-        "Start with the strongest signal for today, then use the quick action preview underneath to decide what to do next.",
+        f"Start with the strongest signal for {time_context.get('phase_reference', 'right now')}, then use the quick action preview underneath to decide what to do next.",
         "At A Glance",
     )
     render_todays_insight_card(
@@ -3472,11 +4398,12 @@ def render_overview_tab(weather_to_show, intelligence_payload, city_to_show, tem
         intelligence_payload.get("insights", []),
         show_supporting_notes=False,
         style_variant="insight-readable",
+        time_note=time_context.get("time_note"),
     )
     render_soft_section_divider()
     render_insight_section_header(
         "Next Best Actions",
-        "This keeps the overview short: one quick movement signal and one practical clothing takeaway instead of multiple full sections.",
+        f"This keeps the overview short: one quick movement signal and one practical clothing takeaway for {time_context.get('phase_reference', 'the current window')} instead of multiple full sections.",
         "Quick Moves",
     )
     render_recommendation_card(
@@ -3488,11 +4415,12 @@ def render_overview_tab(weather_to_show, intelligence_payload, city_to_show, tem
 
 
 def render_insights_tab(intelligence_payload):
+    time_context = intelligence_payload.get("time_context") or {}
     quick_read_items = build_insights_quick_read_items(intelligence_payload)
     if quick_read_items:
         render_insight_section_header(
             "Quick Read",
-            "Start with the highest-signal takeaways before moving into the detailed weather explanation below.",
+            f"Start with the highest-signal takeaways for {time_context.get('phase_reference', 'right now')} before moving into the detailed weather explanation below.",
             "Scan First",
         )
         render_recommendation_card(
@@ -3510,7 +4438,7 @@ def render_insights_tab(intelligence_payload):
         render_soft_section_divider()
         render_insight_section_header(
             "Weather Interpretation",
-            "Feels-like, humidity, and wind are separated into fewer, clearer cards so each signal is easier to read.",
+            f"Feels-like, humidity, and wind are now read through the local clock, so each signal is easier to understand for {time_context.get('phase_reference', 'the current window')}.",
             "Read Next",
         )
         render_guidance_card_grid(detail_insights, grid_variant="insight-readable")
@@ -3520,7 +4448,7 @@ def render_insights_tab(intelligence_payload):
         render_soft_section_divider()
         render_insight_section_header(
             "Daily Routine Recommendations",
-            "Hourly scoring now collapses the routine planner into a cleaner set of best time blocks and one clear watch-out.",
+            f"Hourly scoring is now weighted from {time_context.get('phase_reference', 'now')} forward, so the routine planner stays relevant instead of showing stale earlier blocks.",
             "Smart Scheduler",
         )
         render_recommendation_card(
@@ -3533,19 +4461,34 @@ def render_insights_tab(intelligence_payload):
     render_soft_section_divider()
     render_insight_section_header(
         "Weather Scores",
-        "Comfort, outdoor conditions, and travel readiness stay visible here, but with stronger contrast and cleaner card rhythm.",
+        f"Comfort, outdoor conditions, and travel readiness now shift with local time, not just the overall daily forecast.",
         "Scored View",
     )
     render_weather_score_row(intelligence_payload.get("scores", []), card_variant="insight-readable")
 
 
 def render_clothing_tab(intelligence_payload):
+    time_context = intelligence_payload.get("time_context") or {}
     render_insight_section_header(
         "What To Wear",
-        "Browse visual outfit pieces for each clothing category, then refresh individual cards to cycle through alternate style picks.",
+        f"Start with the outfit read for {time_context.get('phase_reference', 'right now')}. The base look and refreshable visuals now shift with the local time block instead of staying static all day.",
         "Style Guide",
     )
-    render_visual_clothing_grid(intelligence_payload.get("clothing", []), state_prefix="wear")
+    quick_read = intelligence_payload.get("clothing_quick_read") or []
+    if quick_read:
+        render_recommendation_card(
+            "Wear right now",
+            "Time-Aware",
+            quick_read,
+            style_variant="insight-readable",
+        )
+    render_soft_section_divider()
+    render_insight_section_header(
+        "Core Pieces",
+        "These visual pieces are tuned to the current local block, so the base outfit and starting visuals change with the clock.",
+        "Base Outfit",
+    )
+    render_visual_clothing_grid(intelligence_payload.get("clothing", []), state_prefix="wear-core")
 
 
 def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
@@ -3683,9 +4626,10 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
 
 
 def render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit):
+    time_context = intelligence_payload.get("time_context") or {}
     render_insight_section_header(
         "Activity Recommendations",
-        "This section now leads with a short activity scan first, then keeps the detailed guidance and trip tools below.",
+        f"This section now leads with a short activity scan for {time_context.get('phase_reference', 'right now')}, then keeps the detailed guidance and trip tools below.",
         "Move Smart",
     )
     quick_items = build_activities_quick_read_items(intelligence_payload)
@@ -3699,7 +4643,7 @@ def render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_f
         render_soft_section_divider()
         render_insight_section_header(
             "Detailed Activity Guidance",
-            "Walking, exercise, indoor backup, and travel movement remain here, but with clearer cards and stronger text contrast.",
+            f"Shorter reads for walking, exercise, indoor backup, and travel, all tuned to {time_context.get('phase_reference', 'the local time window')}.",
             "Read Next",
         )
     render_guidance_card_grid(intelligence_payload.get("activities", []), grid_variant="insight-readable")
@@ -3723,12 +4667,53 @@ def render_map_tab(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
     )
 
 
+def build_compare_time_summary(primary_weather, secondary_weather, temp_symbol, speed_symbol, use_fahrenheit):
+    personalization = get_personalization_profile()
+    primary_context = build_local_time_context(primary_weather)
+    secondary_context = build_local_time_context(secondary_weather)
+    primary_scores = calculate_weather_scores(primary_weather, primary_context)
+    secondary_scores = calculate_weather_scores(secondary_weather, secondary_context)
+    primary_city = (primary_weather.get("resolved_city") or "First city").split(",")[0].strip()
+    secondary_city = (secondary_weather.get("resolved_city") or "Second city").split(",")[0].strip()
+
+    if primary_scores["outdoor"] >= secondary_scores["outdoor"]:
+        edge_city = primary_city
+        edge_context = primary_context
+    else:
+        edge_city = secondary_city
+        edge_context = secondary_context
+
+    return [
+        {
+            "title": "Local Time Split",
+            "body": (
+                f"{primary_city} is at {primary_context['local_time_label']} ({primary_context['phase_reference']}) while "
+                f"{secondary_city} is at {secondary_context['local_time_label']} ({secondary_context['phase_reference']})."
+            ),
+        },
+        {
+            "title": "Immediate Outdoor Edge",
+            "body": (
+                f"For {personalization['preferred_time'].lower()} plans, {edge_city} has the cleaner immediate outdoor setup."
+                if personalization.get("preferred_time_key")
+                else f"{edge_city} has the cleaner immediate outdoor setup because its local-time score is stronger for {edge_context['phase_reference']}."
+            ),
+        },
+        {
+            "title": "Next Shift",
+            "body": f"{primary_city} next leans into {primary_context['next_phase_reference']}, while {secondary_city} moves toward {secondary_context['next_phase_reference']}.",
+        },
+    ]
+
+
 def build_compare_city_card(weather, city_name, temp_symbol, speed_symbol, use_fahrenheit, label):
     display_city = city_name.split(",")[0].strip() if city_name else "Selected city"
+    time_context = build_local_time_context(weather)
     current = weather.get("current") or {}
+    snapshot = resolve_context_snapshot(weather, time_context)
     display_temperature = (
-        format_temperature_text(current.get("temperature", 0), temp_symbol, use_fahrenheit)
-        if current.get("temperature") is not None
+        format_temperature_text(snapshot.get("temperature", 0), temp_symbol, use_fahrenheit)
+        if snapshot.get("temperature") is not None
         else f"--{temp_symbol}"
     )
     display_feels_like = (
@@ -3736,8 +4721,8 @@ def build_compare_city_card(weather, city_name, temp_symbol, speed_symbol, use_f
         if current.get("feels_like") is not None
         else f"--{temp_symbol}"
     )
-    humidity_value = f"{current.get('humidity')}%" if current.get("humidity") is not None else "--"
-    condition_text = current.get("condition") or "Current conditions"
+    humidity_value = f"{snapshot.get('humidity')}%" if snapshot.get("humidity") is not None else "--"
+    condition_text = f"{snapshot.get('condition') or 'Current conditions'} {time_context['phase_reference']}"
     return dedent(
         f"""
         <div class="intel-card">
@@ -3745,6 +4730,10 @@ def build_compare_city_card(weather, city_name, temp_symbol, speed_symbol, use_f
             <div class="intel-card-title">{escape(display_city)}</div>
             <div class="intel-card-body">{escape(condition_text)}</div>
             <div class="intel-support-grid">
+                <div class="intel-mini-note">
+                    <div class="intel-mini-note-label">Local Time</div>
+                    <div class="intel-mini-note-title">{escape(time_context['local_time_label'])}</div>
+                </div>
                 <div class="intel-mini-note">
                     <div class="intel-mini-note-label">Temperature</div>
                     <div class="intel-mini-note-title">{escape(display_temperature)}</div>
@@ -3875,6 +4864,19 @@ def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol,
             build_compare_city_card(secondary_weather, compare_city, temp_symbol, speed_symbol, use_fahrenheit, "Second city"),
             unsafe_allow_html=True,
         )
+
+    render_soft_section_divider()
+    render_insight_section_header(
+        "Local Time Comparison",
+        "Each city is read in its own local clock, so morning, evening, and night are not treated like the same planning window.",
+        "Clock-Aware",
+    )
+    render_recommendation_card(
+        "How the cities differ right now",
+        "Clock-Aware",
+        build_compare_time_summary(primary_weather, secondary_weather, temp_symbol, speed_symbol, use_fahrenheit),
+        style_variant="insight-readable",
+    )
 
     render_soft_section_divider()
     forecast_columns = st.columns(2)
@@ -4266,11 +5268,11 @@ def render_forecast_section(
             margin: 0;
             background: transparent;
             font-family: "Segoe UI", sans-serif;
-            overflow: hidden;
+            overflow: visible;
           }}
           .forecast-list {{
             border-radius: 28px;
-            padding: 1rem 1.1rem;
+            padding: 1rem 1.1rem 1.22rem;
             margin-top: 0.65rem;
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
             border: 1px solid rgba(255, 255, 255, 0.14);
@@ -4609,7 +5611,7 @@ def render_forecast_section(
 
           const resizeFrame = () => {{
             const listHeight = forecastList ? Math.ceil(forecastList.getBoundingClientRect().height) : 0;
-            const height = Math.max(listHeight + 10, 280);
+            const height = Math.max(listHeight + 28, 308);
             hostWindow.postMessage({{ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height }}, "*");
           }};
 
@@ -4691,7 +5693,7 @@ def render_forecast_section(
           resizeFrame();
         </script>
         """,
-        height=max(280, 92 + (len(row_markup) * 46)),
+        height=max(308, 116 + (len(row_markup) * 48)),
     )
 
 
@@ -4929,15 +5931,17 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             padding: 0 0.18rem;
             scroll-snap-align: start;
           }}
-          .skyline-hourly-item-shell:not(:last-child)::after {{
-            content: "";
+          .skyline-hourly-divider {{
             position: absolute;
             top: 1.2rem;
-            right: -0.02rem;
+            left: -1px;
             bottom: 0.62rem;
-            width: 1px;
-            background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.11), rgba(255,255,255,0.03));
+            width: 2px;
+            background:
+              linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0) 100%),
+              linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.14), rgba(255,255,255,0.02));
             pointer-events: none;
+            z-index: 1;
           }}
           .skyline-hourly-day-marker {{
             min-height: 0.62rem;
@@ -4950,6 +5954,8 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             text-align: center;
           }}
           .skyline-hourly-item {{
+            position: relative;
+            z-index: 2;
             min-height: 4.78rem;
             border-radius: 18px;
             padding: 0.52rem 0.22rem 0.42rem;
@@ -5078,8 +6084,9 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
           const leftFade = root.querySelector(".skyline-hourly-fade--left");
           const rightFade = root.querySelector(".skyline-hourly-fade--right");
 
-          const cardMarkup = payload.map((item) => `
+          const cardMarkup = payload.map((item, index) => `
             <div class="skyline-hourly-item-shell${{item.is_now ? " is-now" : ""}}" role="listitem">
+              ${{index > 0 ? '<div class="skyline-hourly-divider" aria-hidden="true"></div>' : ""}}
               <div class="skyline-hourly-day-marker">${{item.day_marker || "&nbsp;"}}</div>
               <div class="skyline-hourly-item" title="${{item.aria_label}}" aria-label="${{item.aria_label}}">
                 <div class="skyline-hourly-time">${{item.time_label}}</div>
@@ -5483,12 +6490,7 @@ def main():
     handle_search_component_event(search_event)
     weather_to_show, city_to_show = get_active_weather_state()
 
-    current_condition = (
-        weather_to_show["current"]["condition"]
-        if weather_to_show and weather_to_show.get("current")
-        else "Cloudy"
-    )
-    apply_theme(get_background_path(current_condition))
+    apply_theme(get_background_profile(weather_to_show))
 
     temp_symbol = " \u00b0F" if use_fahrenheit else " \u00b0C"
     speed_symbol = "mph" if use_mph else "km/h"
