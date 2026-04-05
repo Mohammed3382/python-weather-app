@@ -284,6 +284,7 @@ def get_weather(city_name):
             "precipitation_probability",
             "precipitation",
             "weather_code",
+            "is_day",
             "relative_humidity_2m",
             "wind_speed_10m",
             "cloud_cover",
@@ -340,6 +341,7 @@ def get_weather(city_name):
     hourly_rain_chances = hourly.get("precipitation_probability") or []
     hourly_rain_totals = hourly.get("precipitation") or []
     hourly_codes = hourly.get("weather_code") or []
+    hourly_is_day = hourly.get("is_day") or [None] * len(hourly_times)
     hourly_humidity = hourly.get("relative_humidity_2m") or []
     hourly_wind = hourly.get("wind_speed_10m") or []
     hourly_cloud_cover = hourly.get("cloud_cover") or []
@@ -351,6 +353,7 @@ def get_weather(city_name):
         len(hourly_rain_chances),
         len(hourly_rain_totals),
         len(hourly_codes),
+        len(hourly_is_day),
         len(hourly_humidity),
         len(hourly_wind),
         len(hourly_cloud_cover),
@@ -361,11 +364,13 @@ def get_weather(city_name):
         hourly_points.append(
             {
                 "date": day_key,
+                "time_iso": iso_time,
                 "time": format_time(iso_time),
                 "temperature": round(hourly_temperatures[index], 1),
                 "rain_chance": int(round(hourly_rain_chances[index] or 0)),
                 "rain_total": round(hourly_rain_totals[index] or 0, 1),
                 "condition": weather_code_to_condition(hourly_codes[index]),
+                "is_day": bool(hourly_is_day[index]) if hourly_is_day[index] is not None else True,
                 "humidity": int(round(hourly_humidity[index] or 0)),
                 "wind": round(hourly_wind[index] or 0, 1),
                 "cloud_cover": int(round(hourly_cloud_cover[index] or 0)),

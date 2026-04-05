@@ -650,15 +650,47 @@ def apply_theme(background_path):
             margin: 0.35rem 0 0.95rem 0;
         }}
         .section-divider {{
+            display: block;
+            width: 100%;
+            clear: both;
             height: 1px;
             margin: 1.45rem 0 1.2rem;
             background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.22), rgba(255,255,255,0));
             opacity: 0.88;
         }}
+        .section-divider--persistent {{
+            position: relative;
+            z-index: 2;
+            margin: 1.8rem 0 1.45rem;
+            opacity: 0.94;
+        }}
         .section-subtitle {{
             margin-top: -0.45rem;
             margin-bottom: 0.95rem;
             opacity: 0.78;
+        }}
+        .insight-section-header {{
+            margin: 0.2rem 0 1rem;
+        }}
+        .insight-section-kicker {{
+            font-size: 0.74rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(232, 244, 255, 0.68);
+        }}
+        .insight-section-title {{
+            margin-top: 0.24rem;
+            font-size: 1.32rem;
+            line-height: 1.14;
+            font-weight: 700;
+            color: #f8fbff;
+        }}
+        .insight-section-subtitle {{
+            margin-top: 0.45rem;
+            max-width: 68ch;
+            font-size: 0.95rem;
+            line-height: 1.68;
+            color: rgba(234, 246, 255, 0.84);
         }}
         .metric-card {{
             min-height: 136px;
@@ -1197,6 +1229,12 @@ def apply_theme(background_path):
             padding: 1.1rem 1.15rem;
             margin-bottom: 1rem;
         }}
+        .intel-card--insight-readable {{
+            padding: 1.12rem 1.14rem 1.16rem;
+            background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.07));
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 16px 36px rgba(4, 15, 32, 0.16);
+        }}
         .intel-card-kicker {{
             font-size: 0.76rem;
             letter-spacing: 0.08em;
@@ -1215,6 +1253,23 @@ def apply_theme(background_path):
             line-height: 1.7;
             opacity: 0.88;
         }}
+        .intel-card--insight-readable .intel-card-title {{
+            font-size: 1.34rem;
+            line-height: 1.22;
+            color: #f9fbff;
+        }}
+        .intel-card--insight-readable .intel-card-body {{
+            font-size: 0.96rem;
+            line-height: 1.72;
+            opacity: 0.95;
+            max-width: 66ch;
+        }}
+        .intel-card-note {{
+            margin-top: 0.6rem;
+            font-size: 0.84rem;
+            line-height: 1.55;
+            color: rgba(233, 245, 255, 0.7);
+        }}
         .intel-support-grid {{
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1224,6 +1279,10 @@ def apply_theme(background_path):
         .intel-mini-note {{
             padding: 0.85rem 0.9rem;
             background: rgba(255,255,255,0.06);
+        }}
+        .intel-support-grid--insight-readable .intel-mini-note {{
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.09);
         }}
         .intel-mini-note-label {{
             font-size: 0.72rem;
@@ -1267,9 +1326,9 @@ def apply_theme(background_path):
         }}
         .intel-score-summary {{
             margin-top: 0.55rem;
-            font-size: 0.88rem;
-            line-height: 1.55;
-            opacity: 0.82;
+            font-size: 0.9rem;
+            line-height: 1.62;
+            opacity: 0.9;
         }}
         .intel-score-card-compact--comfort .intel-score-value {{
             color: #9cf7d4;
@@ -1283,6 +1342,12 @@ def apply_theme(background_path):
         .intel-recommend-card {{
             padding: 1rem 1.05rem;
             margin-bottom: 1rem;
+        }}
+        .intel-recommend-card--insight-readable {{
+            padding: 1.08rem 1.12rem 1.14rem;
+            background: linear-gradient(180deg, rgba(255,255,255,0.13), rgba(255,255,255,0.07));
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 16px 36px rgba(4, 15, 32, 0.16);
         }}
         .intel-recommend-header {{
             display: flex;
@@ -1311,15 +1376,31 @@ def apply_theme(background_path):
             background: rgba(255,255,255,0.06);
             border: 1px solid rgba(255,255,255,0.08);
         }}
+        .intel-recommend-card--insight-readable .intel-recommend-item {{
+            padding: 0.9rem 1rem 0.92rem;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.09);
+            box-shadow: inset 3px 0 0 rgba(214, 239, 250, 0.22);
+        }}
         .intel-recommend-item-title {{
             font-size: 0.95rem;
             font-weight: 700;
         }}
         .intel-recommend-item-body {{
             margin-top: 0.35rem;
-            font-size: 0.88rem;
-            line-height: 1.55;
-            opacity: 0.82;
+            font-size: 0.9rem;
+            line-height: 1.62;
+            opacity: 0.9;
+        }}
+        .intel-recommend-card--insight-readable .intel-recommend-item-title {{
+            font-size: 1rem;
+            color: #f8fbff;
+        }}
+        .intel-recommend-card--insight-readable .intel-recommend-item-body {{
+            font-size: 0.93rem;
+            line-height: 1.68;
+            opacity: 0.94;
+            max-width: 64ch;
         }}
         .stTabs [data-baseweb="tab-list"] {{
             gap: 0.55rem;
@@ -1370,6 +1451,11 @@ def apply_theme(background_path):
         .intel-focus-grid--trip-days {{
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }}
+        .intel-focus-grid--insight-readable {{
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+            margin-bottom: 0.65rem;
+        }}
         .intel-focus-card {{
             padding: 1rem 1.05rem;
             border-radius: 24px;
@@ -1377,6 +1463,12 @@ def apply_theme(background_path):
             border: 1px solid rgba(255,255,255,0.1);
             box-shadow: 0 14px 34px rgba(4, 15, 32, 0.14);
             backdrop-filter: blur(14px);
+        }}
+        .intel-focus-grid--insight-readable .intel-focus-card {{
+            padding: 1.1rem 1.14rem 1.08rem;
+            background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.07));
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 16px 38px rgba(4, 15, 32, 0.16);
         }}
         .intel-focus-card-header {{
             display: flex;
@@ -1409,9 +1501,31 @@ def apply_theme(background_path):
         }}
         .intel-focus-card-body {{
             margin-top: 0.75rem;
-            font-size: 0.9rem;
-            line-height: 1.62;
-            opacity: 0.84;
+            font-size: 0.92rem;
+            line-height: 1.66;
+            opacity: 0.9;
+        }}
+        .intel-focus-grid--insight-readable .intel-focus-card-kicker {{
+            color: rgba(234, 246, 255, 0.72);
+        }}
+        .intel-focus-grid--insight-readable .intel-focus-card-title {{
+            font-size: 1.06rem;
+            line-height: 1.34;
+            color: #f9fbff;
+        }}
+        .intel-focus-grid--insight-readable .intel-focus-card-body {{
+            margin-top: 0.7rem;
+            font-size: 0.95rem;
+            line-height: 1.72;
+            opacity: 0.96;
+            max-width: 42ch;
+        }}
+        .intel-score-card-compact--insight-readable {{
+            min-height: 148px;
+            padding: 1rem 1.05rem 1.05rem;
+            background: linear-gradient(180deg, rgba(255,255,255,0.13), rgba(255,255,255,0.07));
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 16px 34px rgba(4, 15, 32, 0.15);
         }}
         .wear-visual-card {{
             border-radius: 26px;
@@ -1544,10 +1658,74 @@ def apply_theme(background_path):
             border-radius: 18px;
             box-shadow: none;
         }}
+        @media (max-width: 1500px) {{
+            .skyline-nav-brand img {{
+                width: min(100%, 286px);
+            }}
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button[kind="primary"],
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button[kind="secondary"] {{
+                min-height: 2.3rem;
+                font-size: 1.08rem !important;
+                padding-left: 0.1rem;
+                padding-right: 0.1rem;
+            }}
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button p,
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button span {{
+                font-size: 1.08rem !important;
+            }}
+        }}
+        @media (max-width: 1220px) {{
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell {{
+                min-height: 8.95rem;
+                padding-top: 1.52rem;
+                padding-right: 0.42rem;
+                padding-bottom: 1.12rem;
+                padding-left: 0.08rem;
+            }}
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell div[data-testid="stHorizontalBlock"] {{
+                min-height: 4.48rem;
+                gap: 0.02rem;
+            }}
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell div[data-testid="column"],
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell div[data-testid="column"] > div {{
+                min-height: 4.48rem;
+            }}
+            .skyline-nav-brand {{
+                padding-left: 0.1rem;
+            }}
+            .skyline-nav-brand img {{
+                width: min(100%, 248px);
+            }}
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button[kind="primary"],
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button[kind="secondary"] {{
+                min-height: 2.18rem;
+                font-size: 0.94rem !important;
+                padding-left: 0.06rem;
+                padding-right: 0.06rem;
+            }}
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button p,
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button span {{
+                font-size: 0.94rem !important;
+            }}
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell.is-condensed {{
+                min-height: 6.6rem;
+                padding-top: 0.8rem;
+                padding-bottom: 0.66rem;
+            }}
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell.is-condensed div[data-testid="stHorizontalBlock"],
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell.is-condensed div[data-testid="column"],
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell.is-condensed div[data-testid="column"] > div {{
+                min-height: 3.28rem;
+            }}
+            div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell.is-condensed .skyline-nav-brand img {{
+                width: min(100%, 234px);
+            }}
+        }}
         @media (max-width: 900px) {{
             .intel-alert-banner-grid,
             .intel-support-grid,
             .intel-focus-grid,
+            .intel-focus-grid--insight-readable,
             .intel-focus-grid--wear,
             .intel-focus-grid--trip-days {{
                 grid-template-columns: 1fr;
@@ -1571,17 +1749,19 @@ def apply_theme(background_path):
                 margin-top: -0.12rem;
             }}
             .skyline-nav-brand img {{
-                width: min(100%, 254px);
+                width: min(100%, 214px);
                 transform: translateY(-0.04rem);
             }}
             div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button[kind="primary"],
             div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button[kind="secondary"] {{
-                font-size: 1.16rem !important;
+                font-size: 0.84rem !important;
                 font-weight: 600 !important;
+                padding-left: 0.02rem;
+                padding-right: 0.02rem;
             }}
             div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button p,
             div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button span {{
-                font-size: 1.16rem !important;
+                font-size: 0.84rem !important;
                 font-weight: 600 !important;
             }}
             div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell.is-condensed {{
@@ -3148,7 +3328,7 @@ def render_weather_alert_banner(alerts):
     )
 
 
-def render_todays_insight_card(city_name, condition, insights, show_supporting_notes=True):
+def render_todays_insight_card(city_name, condition, insights, show_supporting_notes=True, style_variant="standard"):
     if not insights:
         return
 
@@ -3166,15 +3346,19 @@ def render_todays_insight_card(city_name, condition, insights, show_supporting_n
         ).strip()
         for insight in supporting_insights
     )
-    support_block = f"<div class='intel-support-grid'>{supporting_html}</div>" if supporting_html else ""
+    support_block = (
+        f"<div class='intel-support-grid intel-support-grid--{escape(str(style_variant))}'>{supporting_html}</div>"
+        if supporting_html
+        else ""
+    )
 
     st.markdown(
         f"""
-        <div class="intel-card">
+        <div class="intel-card intel-card--{escape(str(style_variant))}">
             <div class="intel-card-kicker">Today's Insight</div>
             <div class="intel-card-title">{escape(get_condition_icon(condition))} {escape(str(primary_insight["title"]))}</div>
             <div class="intel-card-body">{escape(str(primary_insight["body"]))}</div>
-            <div class="intel-card-body">This summary is tuned to {escape(str(city_name))} using the current weather snapshot.</div>
+            <div class="intel-card-note">This summary is tuned to {escape(str(city_name))} using the current weather snapshot.</div>
             {support_block}
         </div>
         """,
@@ -3182,7 +3366,7 @@ def render_todays_insight_card(city_name, condition, insights, show_supporting_n
     )
 
 
-def render_weather_score_row(scores):
+def render_weather_score_row(scores, card_variant="standard"):
     if not scores:
         return
 
@@ -3191,7 +3375,7 @@ def render_weather_score_row(scores):
         with column:
             st.markdown(
                 f"""
-                <div class="intel-score-card-compact intel-score-card-compact--{escape(str(score["key"]))}">
+                <div class="intel-score-card-compact intel-score-card-compact--{escape(str(score["key"]))} intel-score-card-compact--{escape(str(card_variant))}">
                     <div class="intel-score-label">{escape(str(score["label"]))}</div>
                     <div class="intel-score-value">{escape(str(score["value"]))}<span>/10</span></div>
                     <div class="intel-score-summary">{escape(str(score["summary"]))}</div>
@@ -3201,7 +3385,7 @@ def render_weather_score_row(scores):
             )
 
 
-def render_recommendation_card(title, kicker, items):
+def render_recommendation_card(title, kicker, items, style_variant="standard"):
     items_html = "".join(
         dedent(
             f"""
@@ -3215,7 +3399,7 @@ def render_recommendation_card(title, kicker, items):
     )
     st.markdown(
         f"""
-        <div class="intel-recommend-card">
+        <div class="intel-recommend-card intel-recommend-card--{escape(str(style_variant))}">
             <div class="intel-recommend-header">
                 <div class="intel-recommend-title">{escape(title)}</div>
                 <div class="intel-recommend-kicker">{escape(kicker)}</div>

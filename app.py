@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from html import escape
 from pathlib import Path
 from textwrap import dedent
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -82,6 +83,76 @@ EXPORT_FUTURE_LOOKAHEAD_LIMIT_DAYS = 16
 EXPORT_MAX_SELECTED_DAYS = 20
 MAP_LAYER_OPTIONS = ["Clouds", "Temperature", "Rain", "Wind", "Pressure", "Radar", "Satellite"]
 CONTENT_SECTIONS = ["Overview", "Insights", "What to Wear", "Activities", "Map", "Compare"]
+ROUTINE_ACTIVITY_PROFILES = [
+    {
+        "key": "walking",
+        "eyebrow": "Walking",
+        "label": "walk",
+        "title": "Best time to walk",
+        "icon": "\U0001f6b6",
+        "ideal_temp_range": (18, 28),
+        "hard_temp_range": (10, 35),
+        "rain_weight": 0.32,
+        "wind_limit": 25,
+        "wind_penalty": 1.1,
+        "humidity_limit": 68,
+        "humidity_penalty": 0.28,
+        "minimum_score": 66,
+        "hour_window": (6, 21),
+        "target_block_hours": 3,
+    },
+    {
+        "key": "running",
+        "eyebrow": "Running",
+        "label": "run",
+        "title": "Best time to run",
+        "icon": "\U0001f3c3",
+        "ideal_temp_range": (16, 24),
+        "hard_temp_range": (8, 32),
+        "rain_weight": 0.36,
+        "wind_limit": 22,
+        "wind_penalty": 1.25,
+        "humidity_limit": 60,
+        "humidity_penalty": 0.42,
+        "minimum_score": 68,
+        "hour_window": (5, 20),
+        "target_block_hours": 2,
+    },
+    {
+        "key": "outdoor_tasks",
+        "eyebrow": "Outdoor Tasks",
+        "label": "outdoor tasks",
+        "title": "Best time for outdoor tasks",
+        "icon": "\U0001f6e0\ufe0f",
+        "ideal_temp_range": (18, 30),
+        "hard_temp_range": (10, 36),
+        "rain_weight": 0.42,
+        "wind_limit": 26,
+        "wind_penalty": 1.05,
+        "humidity_limit": 70,
+        "humidity_penalty": 0.22,
+        "minimum_score": 64,
+        "hour_window": (7, 19),
+        "target_block_hours": 3,
+    },
+    {
+        "key": "studying_outside",
+        "eyebrow": "Studying Outside",
+        "label": "study outside",
+        "title": "Best time to study outside",
+        "icon": "\U0001f4da",
+        "ideal_temp_range": (20, 27),
+        "hard_temp_range": (12, 34),
+        "rain_weight": 0.3,
+        "wind_limit": 20,
+        "wind_penalty": 1.15,
+        "humidity_limit": 62,
+        "humidity_penalty": 0.26,
+        "minimum_score": 67,
+        "hour_window": (7, 19),
+        "target_block_hours": 3,
+    },
+]
 
 
 # Unit conversion helpers keep display logic straightforward.
@@ -410,6 +481,324 @@ def build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use
     return insights
 
 
+def parse_scheduler_hour_label(hour_label):
+    try:
+        return datetime.strptime(hour_label, "%I:%M %p")
+    except (TypeError, ValueError):
+        return None
+
+
+def format_scheduler_hour_label(moment):
+    if not moment:
+        return "--"
+    return moment.strftime("%I %p").lstrip("0")
+
+
+def format_scheduler_block_label(block_hours):
+    if not block_hours:
+        return "--"
+
+    start_time = parse_scheduler_hour_label(block_hours[0]["time"])
+    end_time = parse_scheduler_hour_label(block_hours[-1]["time"])
+    if not start_time or not end_time:
+        return block_hours[0]["time"]
+
+    end_time = end_time + timedelta(hours=1)
+    if len(block_hours) == 1:
+        if start_time.strftime("%p") == end_time.strftime("%p"):
+            return f"{start_time.strftime('%I').lstrip('0')}-{end_time.strftime('%I %p').lstrip('0')}"
+        return f"{format_scheduler_hour_label(start_time)} - {format_scheduler_hour_label(end_time)}"
+    if start_time.strftime("%p") == end_time.strftime("%p"):
+        return f"{start_time.strftime('%I').lstrip('0')}-{end_time.strftime('%I %p').lstrip('0')}"
+    return f"{format_scheduler_hour_label(start_time)} - {format_scheduler_hour_label(end_time)}"
+
+
+def point_in_routine_hour_window(point, profile):
+    hour_window = profile.get("hour_window")
+    moment = parse_scheduler_hour_label(point.get("time"))
+    if not hour_window or not moment:
+        return True
+
+    start_hour, end_hour = hour_window
+    return start_hour <= moment.hour < end_hour
+
+
+def score_routine_hour(point, profile):
+    temperature = point.get("temperature", 0)
+    rain_chance = point.get("rain_chance", 0)
+    wind_speed = point.get("wind", 0)
+    humidity = point.get("humidity", 0)
+    ideal_low, ideal_high = profile["ideal_temp_range"]
+    hard_low, hard_high = profile["hard_temp_range"]
+    ideal_midpoint = (ideal_low + ideal_high) / 2
+
+    score = 100.0
+
+    if temperature < ideal_low:
+        score -= (ideal_low - temperature) * 4.2
+    elif temperature > ideal_high:
+        score -= (temperature - ideal_high) * 4.0
+    else:
+        score += max(0, 8 - abs(temperature - ideal_midpoint) * 1.25)
+
+    if temperature < hard_low:
+        score -= 18 + (hard_low - temperature) * 2.8
+    elif temperature > hard_high:
+        score -= 18 + (temperature - hard_high) * 2.5
+
+    score -= rain_chance * profile["rain_weight"]
+    if rain_chance > 50:
+        score -= 12 + (rain_chance - 50) * 0.35
+    else:
+        score += max(0, 6 - rain_chance * 0.12)
+
+    if wind_speed > profile["wind_limit"]:
+        score -= 10 + (wind_speed - profile["wind_limit"]) * profile["wind_penalty"]
+    else:
+        score += max(0, 5 - wind_speed * 0.18)
+
+    if humidity > profile["humidity_limit"]:
+        score -= (humidity - profile["humidity_limit"]) * profile["humidity_penalty"]
+    else:
+        score += max(0, 4 - max(0, humidity - 45) * 0.12)
+
+    if humidity < 30:
+        score -= (30 - humidity) * 0.12
+
+    return max(0, min(int(round(score)), 100))
+
+
+def build_routine_block(hour_slice):
+    if not hour_slice:
+        return None
+
+    return {
+        "hours": hour_slice,
+        "label": format_scheduler_block_label(hour_slice),
+        "avg_score": round(sum(hour["score"] for hour in hour_slice) / len(hour_slice)),
+        "avg_temp": round(sum(hour["temperature"] for hour in hour_slice) / len(hour_slice), 1),
+        "avg_rain": round(sum(hour["rain_chance"] for hour in hour_slice) / len(hour_slice)),
+        "avg_wind": round(sum(hour["wind"] for hour in hour_slice) / len(hour_slice), 1),
+        "avg_humidity": round(sum(hour["humidity"] for hour in hour_slice) / len(hour_slice)),
+        "length": len(hour_slice),
+    }
+
+
+def build_best_routine_blocks(scored_hours, minimum_score):
+    candidate_blocks = []
+    current_block = []
+
+    for hour in scored_hours:
+        if hour["score"] >= minimum_score:
+            current_block.append(hour)
+        elif current_block:
+            candidate_blocks.append(build_routine_block(current_block))
+            current_block = []
+
+    if current_block:
+        candidate_blocks.append(build_routine_block(current_block))
+
+    candidate_blocks = [block for block in candidate_blocks if block]
+    candidate_blocks.sort(key=lambda block: (block["avg_score"], block["length"]), reverse=True)
+    return candidate_blocks
+
+
+def build_fallback_routine_block(scored_hours):
+    if not scored_hours:
+        return None
+    if len(scored_hours) == 1:
+        return build_routine_block([scored_hours[0]])
+
+    best_window = None
+    best_window_score = -1
+    for index in range(len(scored_hours) - 1):
+        window = scored_hours[index : index + 2]
+        window_score = sum(hour["score"] for hour in window) / len(window)
+        if window_score > best_window_score:
+            best_window = window
+            best_window_score = window_score
+
+    return build_routine_block(best_window or [max(scored_hours, key=lambda hour: hour["score"])])
+
+
+def trim_routine_block(block, target_hours):
+    if not block or target_hours <= 0:
+        return block
+    hours = block.get("hours", [])
+    if len(hours) <= target_hours:
+        return block
+
+    best_slice = None
+    best_score = -1
+    for index in range(len(hours) - target_hours + 1):
+        window = hours[index : index + target_hours]
+        window_score = sum(hour["score"] for hour in window) / len(window)
+        if window_score > best_score:
+            best_slice = window
+            best_score = window_score
+
+    return build_routine_block(best_slice or hours[:target_hours])
+
+
+def build_routine_reason_text(block, profile, temp_symbol, speed_symbol, use_fahrenheit):
+    reasons = []
+    ideal_low, ideal_high = profile["ideal_temp_range"]
+
+    if ideal_low <= block["avg_temp"] <= ideal_high:
+        reasons.append("mild temperature")
+    elif block["avg_temp"] < ideal_low:
+        reasons.append("cooler air")
+    else:
+        reasons.append("warmer but still manageable air")
+
+    if block["avg_rain"] <= 15:
+        reasons.append("low rain risk")
+    elif block["avg_rain"] <= 30:
+        reasons.append("manageable rain risk")
+
+    if block["avg_wind"] <= 12:
+        reasons.append("low wind")
+    elif block["avg_wind"] <= profile["wind_limit"]:
+        reasons.append("steady breeze")
+
+    if block["avg_humidity"] <= 55:
+        reasons.append("lighter humidity")
+    elif block["avg_humidity"] <= profile["humidity_limit"]:
+        reasons.append("balanced humidity")
+
+    summary = " + ".join(reasons[:3]) or "the most balanced weather window"
+    detail = (
+        f"Average conditions land near {format_temperature_text(block['avg_temp'], temp_symbol, use_fahrenheit)}, "
+        f"{format_wind_text(block['avg_wind'], speed_symbol)}, {block['avg_humidity']}% humidity, "
+        f"and {block['avg_rain']}% rain risk."
+    )
+    return summary, detail
+
+
+def build_avoid_time_blocks(hourly_points):
+    flagged_hours = []
+    for point in hourly_points:
+        reasons = []
+        severity = 0
+        if point.get("rain_chance", 0) > 50:
+            reasons.append("rain peak")
+            severity += 20 + (point["rain_chance"] - 50) * 0.6
+        if point.get("temperature", 0) > 35:
+            reasons.append("heat peak")
+            severity += 18 + (point["temperature"] - 35) * 2.2
+        if point.get("temperature", 0) < 10:
+            reasons.append("cold snap")
+            severity += 18 + (10 - point["temperature"]) * 2.0
+        if point.get("wind", 0) > 25:
+            reasons.append("gusty wind")
+            severity += 12 + (point["wind"] - 25) * 1.2
+        if reasons:
+            flagged_hours.append({**point, "severity": round(severity), "reasons": reasons})
+
+    avoid_blocks = []
+    current_block = []
+    for hour in hourly_points:
+        matching_hour = next((item for item in flagged_hours if item["time"] == hour["time"]), None)
+        if matching_hour:
+            current_block.append(matching_hour)
+        elif current_block:
+            avoid_blocks.append(current_block)
+            current_block = []
+
+    if current_block:
+        avoid_blocks.append(current_block)
+
+    decorated_blocks = []
+    for block in avoid_blocks:
+        reason_counts = {}
+        for hour in block:
+            for reason in hour["reasons"]:
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        dominant_reasons = sorted(reason_counts.items(), key=lambda item: item[1], reverse=True)
+        decorated_blocks.append(
+            {
+                "label": format_scheduler_block_label(block),
+                "hours": block,
+                "severity": round(sum(hour["severity"] for hour in block) / len(block)),
+                "reason_text": " + ".join(reason for reason, _ in dominant_reasons[:2]),
+            }
+        )
+
+    decorated_blocks.sort(key=lambda block: block["severity"], reverse=True)
+    return decorated_blocks[:2]
+
+
+def build_daily_routine_scheduler(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    forecast = weather_to_show.get("forecast") or []
+    today = forecast[0] if forecast else {}
+    hourly_points = today.get("hourly") or []
+    if not hourly_points:
+        return {}
+
+    schedule_items = []
+    summary_items = []
+
+    for profile in ROUTINE_ACTIVITY_PROFILES:
+        profile_points = [point for point in hourly_points if point_in_routine_hour_window(point, profile)] or hourly_points
+        scored_hours = [{**point, "score": score_routine_hour(point, profile)} for point in profile_points]
+        best_blocks = build_best_routine_blocks(scored_hours, profile["minimum_score"])
+        selected_block = best_blocks[0] if best_blocks else build_fallback_routine_block(scored_hours)
+        if not selected_block:
+            continue
+        selected_block = trim_routine_block(selected_block, profile.get("target_block_hours", 0))
+
+        reason_text, detail_text = build_routine_reason_text(
+            selected_block,
+            profile,
+            temp_symbol,
+            speed_symbol,
+            use_fahrenheit,
+        )
+        summary_items.append(
+            {
+                "title": profile["eyebrow"],
+                "body": f"{profile['title']}: {selected_block['label']} ({reason_text})",
+            }
+        )
+        schedule_items.append(
+            {
+                "eyebrow": profile["eyebrow"],
+                "title": selected_block["label"],
+                "body": (
+                    f"{selected_block['label']} scores best for {profile['label']} because of {reason_text}. "
+                    f"{detail_text}"
+                ),
+                "icon": profile["icon"],
+            }
+        )
+
+    avoid_blocks = build_avoid_time_blocks(hourly_points)
+    if avoid_blocks:
+        avoid_summary = "; ".join(f"{block['label']} ({block['reason_text']})" for block in avoid_blocks)
+        summary_items.append({"title": "Avoid Times", "body": avoid_summary})
+        avoid_body = "Avoid " + "; ".join(
+            f"{block['label']} when {block['reason_text']} takes over"
+            for block in avoid_blocks
+        ) + "."
+    else:
+        avoid_body = "No major heat, rain, or wind spike stands out strongly enough to flag a clear avoid window today."
+        summary_items.append({"title": "Avoid Times", "body": "No major avoid window stands out today."})
+
+    schedule_items.append(
+        {
+            "eyebrow": "Avoid Times",
+            "title": "Hours to skip if possible",
+            "body": avoid_body,
+            "icon": "\u26a0\ufe0f",
+        }
+    )
+
+    return {
+        "summary_items": summary_items,
+        "cards": schedule_items,
+    }
+
+
 def build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
     current = weather_to_show["current"]
     today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
@@ -607,6 +996,7 @@ def build_weather_intelligence_payload(weather_to_show, city_to_show, temp_symbo
         "scores": build_weather_score_cards(weather_to_show),
         "alerts": build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
         "insights": build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
+        "routine_scheduler": build_daily_routine_scheduler(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
         "activities": build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
         "clothing": build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit),
     }
@@ -2866,7 +3256,7 @@ def render_header_section(weather_to_show, city_to_show, temp_symbol, speed_symb
     with nav_container:
         st.markdown("<div class='skyline-persistent-nav-anchor' aria-hidden='true'></div>", unsafe_allow_html=True)
         logo_data_uri = "data:image/svg+xml;base64," + base64.b64encode(APP_LOGO_PATH.read_bytes()).decode("ascii")
-        action_row = st.columns([1.12, 0.62, 0.62, 0.62, 0.62, 0.62, 0.62, 2.32, 0.56, 0.18], gap="small")
+        action_row = st.columns([1.04, 0.72, 0.7, 1.02, 0.92, 0.52, 0.76, 2.66, 0.66, 0.2], gap="small")
 
         with action_row[0]:
             st.markdown(
@@ -2916,10 +3306,10 @@ def render_current_conditions_section(weather_to_show, speed_symbol, converted_w
         else current["feels_like"]
     )
 
-    st.markdown("<div class='section-title'>Current Conditions</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='section-subtitle'>Tap any glass card to expand the secondary details connected to that metric.</div>",
-        unsafe_allow_html=True,
+    render_insight_section_header(
+        "Current Conditions",
+        "Tap any glass card to expand the secondary details connected to that metric.",
+        "Live Snapshot",
     )
 
     row1 = st.columns(4)
@@ -2968,7 +3358,6 @@ def render_current_conditions_section(weather_to_show, speed_symbol, converted_w
             ],
         )
 
-
 def build_overview_preview_items(intelligence_payload):
     preview_items = []
     activity_items = intelligence_payload.get("activities", [])
@@ -2992,65 +3381,179 @@ def build_overview_preview_items(intelligence_payload):
     return preview_items
 
 
+def render_insight_section_header(title, subtitle, kicker):
+    st.markdown(
+        f"""
+        <div class="insight-section-header">
+            <div class="insight-section-kicker">{escape(kicker)}</div>
+            <div class="insight-section-title">{escape(title)}</div>
+            <div class="insight-section-subtitle">{escape(subtitle)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_soft_section_divider(variant="default"):
+    divider_class = "section-divider"
+    if variant == "persistent":
+        divider_class += " section-divider--persistent"
+    st.markdown(f"<div class='{divider_class}'></div>", unsafe_allow_html=True)
+
+
+def build_insights_quick_read_items(intelligence_payload):
+    quick_items = []
+    insights = intelligence_payload.get("insights", [])
+    trend_card = next((item for item in insights if item.get("eyebrow") == "Forecast Trend"), None)
+    if trend_card:
+        quick_items.append({"title": "Forecast Trend", "body": trend_card["body"]})
+
+    routine_scheduler = intelligence_payload.get("routine_scheduler") or {}
+    routine_items = routine_scheduler.get("summary_items", [])
+    walking_item = next((item for item in routine_items if item.get("title") == "Walking"), None)
+    if walking_item:
+        quick_items.append({"title": "Best Outdoor Window", "body": walking_item["body"]})
+
+    avoid_item = next((item for item in routine_items if item.get("title") == "Avoid Times"), None)
+    if avoid_item and "No major avoid window" not in avoid_item.get("body", ""):
+        quick_items.append({"title": "Watch First", "body": avoid_item["body"]})
+    else:
+        scores = intelligence_payload.get("scores", [])
+        if scores:
+            strongest_score = max(scores, key=lambda score: score.get("value", 0))
+            weakest_score = min(scores, key=lambda score: score.get("value", 0))
+            if weakest_score.get("value", 0) <= 6:
+                quick_items.append(
+                    {
+                        "title": "Main Watch-Out",
+                        "body": (
+                            f"{weakest_score['label']} is the softer signal at {weakest_score['value']}/10. "
+                            f"{weakest_score['summary']}"
+                        ),
+                    }
+                )
+            else:
+                quick_items.append(
+                    {
+                        "title": "Current Edge",
+                        "body": (
+                            f"{strongest_score['label']} leads at {strongest_score['value']}/10. "
+                            f"{strongest_score['summary']}"
+                        ),
+                    }
+                )
+
+    return quick_items[:3]
+
+
+def build_activities_quick_read_items(intelligence_payload):
+    quick_items = []
+    activities = intelligence_payload.get("activities", [])
+    if activities:
+        quick_items.append({"title": "Walking", "body": activities[0]["body"]})
+    if len(activities) > 1:
+        quick_items.append({"title": "Outdoor Effort", "body": activities[1]["body"]})
+    if len(activities) > 3:
+        quick_items.append({"title": "Travel", "body": activities[3]["body"]})
+    return quick_items[:3]
+
+
 def render_overview_tab(weather_to_show, intelligence_payload, city_to_show, temp_symbol, use_fahrenheit):
     render_weather_alert_banner(intelligence_payload.get("alerts", []))
+    render_soft_section_divider()
+    render_insight_section_header(
+        "Overview",
+        "Start with the strongest signal for today, then use the quick action preview underneath to decide what to do next.",
+        "At A Glance",
+    )
     render_todays_insight_card(
         intelligence_payload.get("city") or city_to_show,
         intelligence_payload.get("condition"),
         intelligence_payload.get("insights", []),
         show_supporting_notes=False,
+        style_variant="insight-readable",
+    )
+    render_soft_section_divider()
+    render_insight_section_header(
+        "Next Best Actions",
+        "This keeps the overview short: one quick movement signal and one practical clothing takeaway instead of multiple full sections.",
+        "Quick Moves",
     )
     render_recommendation_card(
-        "Recommendation Preview",
+        "Recommendation preview",
         "Quick Scan",
         build_overview_preview_items(intelligence_payload),
+        style_variant="insight-readable",
     )
 
 
 def render_insights_tab(intelligence_payload):
-    trend_card = next((item for item in intelligence_payload.get("insights", []) if item.get("eyebrow") == "Forecast Trend"), None)
-    if trend_card:
-        st.markdown("<div class='section-title'>Forecast Insight</div>", unsafe_allow_html=True)
-        st.markdown(
-            "<div class='section-subtitle'>Trend analysis summarizes whether the forecast is warming, cooling, or staying steady.</div>",
-            unsafe_allow_html=True,
+    quick_read_items = build_insights_quick_read_items(intelligence_payload)
+    if quick_read_items:
+        render_insight_section_header(
+            "Quick Read",
+            "Start with the highest-signal takeaways before moving into the detailed weather explanation below.",
+            "Scan First",
         )
         render_recommendation_card(
-            trend_card["title"],
-            trend_card["eyebrow"],
-            [{"title": "Trend Summary", "body": trend_card["body"]}],
+            "What matters most right now",
+            "Fast Scan",
+            quick_read_items,
+            style_variant="insight-readable",
         )
 
-    st.markdown("<div class='section-title'>Detailed Weather Interpretation</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='section-subtitle'>Feels-like, humidity, wind, and the short forecast trend are separated into focused cards.</div>",
-        unsafe_allow_html=True,
-    )
-    render_guidance_card_grid(intelligence_payload.get("insights", []), grid_variant="insights")
+    detail_insights = [
+        item for item in intelligence_payload.get("insights", [])
+        if item.get("eyebrow") != "Forecast Trend"
+    ]
+    if detail_insights:
+        render_soft_section_divider()
+        render_insight_section_header(
+            "Weather Interpretation",
+            "Feels-like, humidity, and wind are separated into fewer, clearer cards so each signal is easier to read.",
+            "Read Next",
+        )
+        render_guidance_card_grid(detail_insights, grid_variant="insight-readable")
 
-    st.markdown("<div class='section-title'>Weather Scores</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='section-subtitle'>Comfort, outdoor conditions, and travel readiness remain separate so each signal is easy to scan.</div>",
-        unsafe_allow_html=True,
+    routine_scheduler = intelligence_payload.get("routine_scheduler") or {}
+    if routine_scheduler.get("summary_items"):
+        render_soft_section_divider()
+        render_insight_section_header(
+            "Daily Routine Recommendations",
+            "Hourly scoring now collapses the routine planner into a cleaner set of best time blocks and one clear watch-out.",
+            "Smart Scheduler",
+        )
+        render_recommendation_card(
+            "Best time blocks today",
+            "Smart Scheduler",
+            routine_scheduler.get("summary_items", []),
+            style_variant="insight-readable",
+        )
+
+    render_soft_section_divider()
+    render_insight_section_header(
+        "Weather Scores",
+        "Comfort, outdoor conditions, and travel readiness stay visible here, but with stronger contrast and cleaner card rhythm.",
+        "Scored View",
     )
-    render_weather_score_row(intelligence_payload.get("scores", []))
+    render_weather_score_row(intelligence_payload.get("scores", []), card_variant="insight-readable")
 
 
 def render_clothing_tab(intelligence_payload):
-    st.markdown("<div class='section-title'>What To Wear</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='section-subtitle'>Browse visual outfit pieces for each clothing category, then refresh individual cards to cycle through alternate style picks.</div>",
-        unsafe_allow_html=True,
+    render_insight_section_header(
+        "What To Wear",
+        "Browse visual outfit pieces for each clothing category, then refresh individual cards to cycle through alternate style picks.",
+        "Style Guide",
     )
     render_visual_clothing_grid(intelligence_payload.get("clothing", []), state_prefix="wear")
 
 
 def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
-    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>Packing / Trip Planner</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='section-subtitle'>Set an optional starting point, choose a destination, and export the full trip plan as a clean PDF instead of opening a large on-page result.</div>",
-        unsafe_allow_html=True,
+    render_soft_section_divider()
+    render_insight_section_header(
+        "Packing / Trip Planner",
+        "Set an optional starting point, choose a destination, and export the full trip plan as a clean PDF instead of opening a large on-page result.",
+        "Trip Export",
     )
 
     route_columns = st.columns(2)
@@ -3180,20 +3683,34 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
 
 
 def render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit):
-    st.markdown("<div class='section-title'>Activity Recommendations</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='section-subtitle'>Walking, outdoor effort, indoor backup plans, and travel suitability are split into separate recommendation cards.</div>",
-        unsafe_allow_html=True,
+    render_insight_section_header(
+        "Activity Recommendations",
+        "This section now leads with a short activity scan first, then keeps the detailed guidance and trip tools below.",
+        "Move Smart",
     )
-    render_guidance_card_grid(intelligence_payload.get("activities", []), grid_variant="activity")
+    quick_items = build_activities_quick_read_items(intelligence_payload)
+    if quick_items:
+        render_recommendation_card(
+            "Activity quick read",
+            "Fast Scan",
+            quick_items,
+            style_variant="insight-readable",
+        )
+        render_soft_section_divider()
+        render_insight_section_header(
+            "Detailed Activity Guidance",
+            "Walking, exercise, indoor backup, and travel movement remain here, but with clearer cards and stronger text contrast.",
+            "Read Next",
+        )
+    render_guidance_card_grid(intelligence_payload.get("activities", []), grid_variant="insight-readable")
     render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit)
 
 
 def render_map_tab(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
-    st.markdown("<div class='section-title'>Weather Map</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='section-subtitle'>Switch between multiple live layers here, including clouds, temperature, rain, wind, and additional map views.</div>",
-        unsafe_allow_html=True,
+    render_insight_section_header(
+        "Weather Map",
+        "Switch between multiple live layers here, including clouds, temperature, rain, wind, and additional map views.",
+        "Live Layers",
     )
     render_live_weather_map(
         weather_to_show,
@@ -3247,10 +3764,10 @@ def build_compare_city_card(weather, city_name, temp_symbol, speed_symbol, use_f
 
 
 def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
-    st.markdown("<div class='section-title'>Compare Two Cities</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='section-subtitle'>Compare two cities side by side without changing the main city shown across the rest of the app.</div>",
-        unsafe_allow_html=True,
+    render_insight_section_header(
+        "Compare Two Cities",
+        "Compare two cities side by side without changing the main city shown across the rest of the app.",
+        "Side By Side",
     )
 
     auto_primary_city = city_to_show or weather_to_show.get("resolved_city") or "Current city"
@@ -3346,6 +3863,7 @@ def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol,
     primary_city = primary_weather.get("resolved_city") or auto_primary_city
     compare_city = secondary_weather.get("resolved_city") or "Comparison city"
 
+    render_soft_section_divider()
     hero_columns = st.columns(2)
     with hero_columns[0]:
         st.markdown(
@@ -3358,6 +3876,7 @@ def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol,
             unsafe_allow_html=True,
         )
 
+    render_soft_section_divider()
     forecast_columns = st.columns(2)
     with forecast_columns[0]:
         render_forecast_section(
@@ -3386,7 +3905,13 @@ def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol,
         if trend_card:
             trend_items.append({"title": f"{label}: {trend_card['title']}", "body": trend_card["body"]})
     if trend_items:
-        render_recommendation_card("Forecast Trend Comparison", "Trend Snapshot", trend_items)
+        render_soft_section_divider()
+        render_insight_section_header(
+            "Forecast Trend Comparison",
+            "This keeps the side-by-side read focused on the biggest forecast shift instead of making you scan both columns again.",
+            "Trend Snapshot",
+        )
+        render_recommendation_card("Forecast Trend Comparison", "Trend Snapshot", trend_items, style_variant="insight-readable")
 
 
 def render_weather_tabbed_section(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
@@ -3420,10 +3945,10 @@ def render_weather_tabbed_section(weather_to_show, city_to_show, temp_symbol, sp
 def _legacy_render_forecast_section(weather_to_show, temp_symbol, use_fahrenheit):
     forecast = weather_to_show["forecast"]
 
-    st.markdown("<div class='section-title'>10-Day Forecast</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='section-subtitle'>Tap any day to open the full forecast detail view for that date.</div>",
-        unsafe_allow_html=True,
+    render_insight_section_header(
+        "10-Day Forecast",
+        "Tap any day to open the full forecast detail view for that date.",
+        "Forecast View",
     )
 
     if len(forecast) < 10:
@@ -3680,10 +4205,10 @@ def render_forecast_section(
     forecast = weather_to_show["forecast"]
     visible_forecast = forecast[:day_limit]
 
-    st.markdown(f"<div class='section-title'>{escape(section_title)}</div>", unsafe_allow_html=True)
-    st.markdown(
-        f"<div class='section-subtitle'>{escape(section_subtitle)}</div>",
-        unsafe_allow_html=True,
+    render_insight_section_header(
+        section_title,
+        section_subtitle,
+        "Forecast View",
     )
 
     if len(forecast) < day_limit:
@@ -4174,39 +4699,461 @@ def _legacy_render_forecast_dialog(weather_to_show, temp_symbol, speed_symbol, u
     return
 
 
-def build_hourly_outlook_strip(hourly_points, use_fahrenheit, temp_symbol, speed_symbol):
+def get_weather_local_now(weather_to_show):
+    time_info = (weather_to_show or {}).get("time") or {}
+    location = (weather_to_show or {}).get("location") or {}
+    timezone_name = time_info.get("timezone") or location.get("timezone")
+
+    if timezone_name:
+        try:
+            return datetime.now(ZoneInfo(timezone_name))
+        except ZoneInfoNotFoundError:
+            pass
+
+    for candidate in [time_info.get("local_datetime_iso"), time_info.get("observed_at")]:
+        if not candidate:
+            continue
+        try:
+            return datetime.fromisoformat(candidate)
+        except ValueError:
+            continue
+
+    return datetime.now()
+
+
+def get_hourly_outlook_icon(condition, is_day):
+    if condition == "Sunny":
+        return "\u2600\ufe0f" if is_day else "\U0001f319"
+    if condition == "Cloudy":
+        return "\u26c5" if is_day else "\u2601\ufe0f"
+    if condition == "Rainy":
+        return "\U0001f327\ufe0f"
+    if condition == "Snowy":
+        return "\u2744\ufe0f"
+    if condition == "Thunderstorm":
+        return "\u26c8\ufe0f"
+    if condition == "Foggy":
+        return "\U0001f32b\ufe0f"
+    return get_condition_icon(condition)
+
+
+def build_hourly_outlook_items(weather_to_show, use_fahrenheit, temp_symbol):
+    forecast = (weather_to_show or {}).get("forecast") or []
+    if not forecast:
+        return []
+
+    hourly_points = []
+    for day in forecast:
+        for point in day.get("hourly") or []:
+            try:
+                if point.get("time_iso"):
+                    point_dt = datetime.fromisoformat(point["time_iso"])
+                else:
+                    point_dt = datetime.strptime(
+                        f"{point['date']} {point['time']}",
+                        "%Y-%m-%d %I:%M %p",
+                    )
+            except (KeyError, TypeError, ValueError):
+                continue
+            hourly_points.append((point_dt, point))
+
     if not hourly_points:
-        return ""
+        return []
 
-    preview_points = hourly_points[::3][:8]
-    cards = []
-    for point in preview_points:
+    hourly_points.sort(key=lambda item: item[0])
+    local_now = get_weather_local_now(weather_to_show)
+    if hourly_points and hourly_points[0][0].tzinfo is None and local_now.tzinfo is not None:
+        local_now = local_now.replace(tzinfo=None)
+    current_hour = local_now.replace(minute=0, second=0, microsecond=0)
+    window_end = (current_hour + timedelta(days=2)).replace(hour=1, minute=0, second=0, microsecond=0)
+    upcoming_points = [
+        (point_dt, point)
+        for point_dt, point in hourly_points
+        if point_dt >= current_hour and point_dt < window_end
+    ]
+    if not upcoming_points:
+        upcoming_points = [item for item in hourly_points if item[0] >= current_hour] or hourly_points
+
+    items = []
+    last_date = None
+    for index, (point_dt, point) in enumerate(upcoming_points):
         display_temp = round(celsius_to_fahrenheit(point["temperature"]), 1) if use_fahrenheit else point["temperature"]
-        display_wind = round(kmh_to_mph(point["wind"]), 1) if speed_symbol == "mph" else point["wind"]
-        cards.append(
-            dedent(
-                f"""
-                <div class="forecast-hour-card">
-                    <div class="forecast-hour-time">{point['time']}</div>
-                    <div class="forecast-hour-icon">{get_condition_icon(point['condition'])}</div>
-                    <div class="forecast-hour-temp">{display_temp}{temp_symbol}</div>
-                    <div class="forecast-hour-meta">{point['rain_chance']}% rain</div>
-                    <div class="forecast-hour-meta">{display_wind} {speed_symbol}</div>
-                </div>
-                """
-            ).strip()
-        )
+        rounded_temp = int(round(display_temp))
+        is_day = point.get("is_day")
+        if is_day is None:
+            is_day = 6 <= point_dt.hour < 18
+        time_label = point_dt.strftime("%I%p").lstrip("0")
+        if index == 0 and point_dt.date() == current_hour.date() and point_dt.hour == current_hour.hour:
+            time_label = "Now"
 
-    return dedent(
+        day_marker = ""
+        if last_date is not None and point_dt.date() != last_date:
+            if point_dt.date() == current_hour.date() + timedelta(days=1):
+                day_marker = "Tomorrow"
+            else:
+                day_marker = point_dt.strftime("%a")
+
+        items.append(
+            {
+                "time_label": time_label,
+                "day_marker": day_marker,
+                "icon": get_hourly_outlook_icon(point["condition"], is_day),
+                "temp_label": f"{rounded_temp}\u00b0",
+                "condition": point["condition"],
+                "is_now": index == 0 and time_label == "Now",
+                "aria_label": (
+                    f"{point_dt.strftime('%a %I %p').replace(' 0', ' ')}. "
+                    f"{point['condition']}. {rounded_temp}{temp_symbol.strip()}."
+                ),
+            }
+        )
+        last_date = point_dt.date()
+
+    return items
+
+
+def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, instance_id="main"):
+    items = build_hourly_outlook_items(weather_to_show, use_fahrenheit, temp_symbol)
+    if not items:
+        return False
+
+    component_id = f"skyline-hourly-outlook-{instance_id}"
+    components.html(
         f"""
-        <div class="forecast-hour-strip-shell">
-            <div class="forecast-hour-strip-title">Day rhythm</div>
-            <div class="forecast-hour-strip">
-                {''.join(cards)}
+        <div class="skyline-hourly-shell" id="{escape(component_id)}">
+          <div class="skyline-hourly-header">
+            <div class="skyline-hourly-header-copy">
+              <div class="skyline-hourly-kicker">Hourly Outlook</div>
+              <div class="skyline-hourly-subtitle">Live conditions from now through tomorrow night</div>
             </div>
+            <div class="skyline-hourly-meta">Through 1AM</div>
+          </div>
+          <div class="skyline-hourly-stage">
+            <button class="skyline-hourly-arrow skyline-hourly-arrow--left" type="button" aria-label="Scroll hourly forecast left" data-direction="prev">&#10094;</button>
+            <div class="skyline-hourly-fade skyline-hourly-fade--left" aria-hidden="true"></div>
+            <div class="skyline-hourly-track-shell">
+              <div class="skyline-hourly-track" role="list" aria-label="Hourly weather outlook"></div>
+            </div>
+            <div class="skyline-hourly-fade skyline-hourly-fade--right" aria-hidden="true"></div>
+            <button class="skyline-hourly-arrow skyline-hourly-arrow--right" type="button" aria-label="Scroll hourly forecast right" data-direction="next">&#10095;</button>
+          </div>
         </div>
-        """
-    ).strip()
+        <style>
+          body {{
+            margin: 0;
+            background: transparent;
+            font-family: "Segoe UI", sans-serif;
+            overflow: hidden;
+          }}
+          * {{
+            box-sizing: border-box;
+          }}
+          .skyline-hourly-shell {{
+            position: relative;
+            width: 100%;
+            border-radius: 26px;
+            padding: 0.78rem 0.82rem 1rem;
+            background:
+              linear-gradient(180deg, rgba(255,255,255,0.13), rgba(255,255,255,0.06)),
+              linear-gradient(140deg, rgba(99, 127, 158, 0.14), rgba(28, 45, 66, 0.12));
+            border: 1px solid rgba(255,255,255,0.11);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+            backdrop-filter: blur(18px);
+            color: #f6fbff;
+            overflow: hidden;
+          }}
+          .skyline-hourly-shell::before {{
+            content: "";
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 42%;
+            background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0));
+            pointer-events: none;
+          }}
+          .skyline-hourly-header {{
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 0.38rem;
+            position: relative;
+            z-index: 1;
+          }}
+          .skyline-hourly-header-copy {{
+            min-width: 0;
+          }}
+          .skyline-hourly-kicker,
+          .skyline-hourly-meta {{
+            font-size: 0.68rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(234, 245, 255, 0.68);
+            white-space: nowrap;
+          }}
+          .skyline-hourly-subtitle {{
+            margin-top: 0.12rem;
+            font-size: 0.8rem;
+            line-height: 1.28;
+            color: rgba(232, 244, 255, 0.66);
+          }}
+          .skyline-hourly-stage {{
+            position: relative;
+            padding: 0 1.92rem;
+          }}
+          .skyline-hourly-track-shell {{
+            position: relative;
+            border-radius: 18px;
+            overflow: hidden;
+            padding: 0;
+            background: transparent;
+            border: 0;
+            box-shadow: none;
+          }}
+          .skyline-hourly-track {{
+            display: flex;
+            gap: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scroll-behavior: smooth;
+            scroll-snap-type: x proximity;
+            padding: 0.08rem 0 0.16rem;
+            scrollbar-width: none;
+          }}
+          .skyline-hourly-track::-webkit-scrollbar {{
+            display: none;
+          }}
+          .skyline-hourly-item-shell {{
+            position: relative;
+            flex: 0 0 4.35rem;
+            min-width: 4.35rem;
+            padding: 0 0.18rem;
+            scroll-snap-align: start;
+          }}
+          .skyline-hourly-item-shell:not(:last-child)::after {{
+            content: "";
+            position: absolute;
+            top: 1.2rem;
+            right: -0.02rem;
+            bottom: 0.62rem;
+            width: 1px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.11), rgba(255,255,255,0.03));
+            pointer-events: none;
+          }}
+          .skyline-hourly-day-marker {{
+            min-height: 0.62rem;
+            margin-bottom: 0.14rem;
+            font-size: 0.62rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(232, 244, 255, 0.48);
+            white-space: nowrap;
+            text-align: center;
+          }}
+          .skyline-hourly-item {{
+            min-height: 4.78rem;
+            border-radius: 18px;
+            padding: 0.52rem 0.22rem 0.42rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 0.2rem;
+            background: transparent;
+            border: 1px solid transparent;
+            box-shadow: none;
+          }}
+          .skyline-hourly-item-shell.is-now .skyline-hourly-item {{
+            background: linear-gradient(180deg, rgba(255,255,255,0.11), rgba(255,255,255,0.04));
+            border-color: rgba(214, 239, 250, 0.14);
+            box-shadow:
+              inset 0 -2px 0 rgba(214, 239, 250, 0.36),
+              0 8px 18px rgba(6, 18, 33, 0.1);
+          }}
+          .skyline-hourly-time {{
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            color: rgba(244, 250, 255, 0.9);
+          }}
+          .skyline-hourly-icon {{
+            font-size: 1.04rem;
+            line-height: 1;
+            filter: drop-shadow(0 5px 10px rgba(6, 18, 33, 0.16));
+          }}
+          .skyline-hourly-temp {{
+            font-size: 0.9rem;
+            font-weight: 700;
+            line-height: 1;
+            color: rgba(246, 251, 255, 0.92);
+          }}
+          .skyline-hourly-arrow {{
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 3;
+            width: 1.68rem;
+            height: 1.68rem;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: linear-gradient(180deg, rgba(35, 58, 85, 0.84), rgba(21, 38, 59, 0.8));
+            color: #f6fbff;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 16px rgba(4, 15, 32, 0.14);
+            backdrop-filter: blur(12px);
+            transition: background 0.22s ease, opacity 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
+          }}
+          .skyline-hourly-arrow:hover {{
+            background: linear-gradient(180deg, rgba(49, 77, 109, 0.92), rgba(27, 46, 72, 0.88));
+            box-shadow: 0 10px 20px rgba(4, 15, 32, 0.18);
+            transform: translateY(-50%) scale(1.02);
+          }}
+          .skyline-hourly-arrow:disabled {{
+            opacity: 0.18;
+            cursor: default;
+          }}
+          .skyline-hourly-arrow--left {{
+            left: 0.02rem;
+          }}
+          .skyline-hourly-arrow--right {{
+            right: 0.02rem;
+          }}
+          .skyline-hourly-fade {{
+            position: absolute;
+            top: 0.08rem;
+            bottom: 0.12rem;
+            width: 1.92rem;
+            z-index: 2;
+            pointer-events: none;
+            opacity: 1;
+            transition: opacity 0.2s ease;
+          }}
+          .skyline-hourly-fade--left {{
+            left: 1.68rem;
+            border-radius: 18px 0 0 18px;
+            background: linear-gradient(90deg, rgba(79, 102, 129, 0.9) 0%, rgba(79, 102, 129, 0.72) 46%, rgba(79, 102, 129, 0) 100%);
+          }}
+          .skyline-hourly-fade--right {{
+            right: 1.68rem;
+            border-radius: 0 18px 18px 0;
+            background: linear-gradient(270deg, rgba(79, 102, 129, 0.9) 0%, rgba(79, 102, 129, 0.72) 46%, rgba(79, 102, 129, 0) 100%);
+          }}
+          @media (max-width: 900px) {{
+            .skyline-hourly-shell {{
+              padding: 0.72rem 0.74rem 0.8rem;
+            }}
+            .skyline-hourly-subtitle {{
+              font-size: 0.76rem;
+            }}
+            .skyline-hourly-stage {{
+              padding-left: 1.72rem;
+              padding-right: 1.72rem;
+            }}
+            .skyline-hourly-fade {{
+              width: 1.7rem;
+            }}
+            .skyline-hourly-item-shell {{
+              flex-basis: 4rem;
+              min-width: 4rem;
+            }}
+            .skyline-hourly-item {{
+              min-height: 4.5rem;
+            }}
+            .skyline-hourly-fade--left {{
+              left: 1.52rem;
+            }}
+            .skyline-hourly-fade--right {{
+              right: 1.52rem;
+            }}
+          }}
+        </style>
+        <script>
+          const payload = {json.dumps(items, ensure_ascii=False)};
+          const root = document.getElementById({json.dumps(component_id)});
+          const track = root.querySelector(".skyline-hourly-track");
+          const prevButton = root.querySelector('[data-direction="prev"]');
+          const nextButton = root.querySelector('[data-direction="next"]');
+          const leftFade = root.querySelector(".skyline-hourly-fade--left");
+          const rightFade = root.querySelector(".skyline-hourly-fade--right");
+
+          const cardMarkup = payload.map((item) => `
+            <div class="skyline-hourly-item-shell${{item.is_now ? " is-now" : ""}}" role="listitem">
+              <div class="skyline-hourly-day-marker">${{item.day_marker || "&nbsp;"}}</div>
+              <div class="skyline-hourly-item" title="${{item.aria_label}}" aria-label="${{item.aria_label}}">
+                <div class="skyline-hourly-time">${{item.time_label}}</div>
+                <div class="skyline-hourly-icon">${{item.icon}}</div>
+                <div class="skyline-hourly-temp">${{item.temp_label}}</div>
+              </div>
+            </div>
+          `).join("");
+          track.innerHTML = cardMarkup;
+
+          const setFrameHeight = () => {{
+            const height = Math.max(document.body.scrollHeight + 10, 164);
+            window.parent.postMessage({{ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height }}, "*");
+          }};
+
+          const getScrollStep = () => {{
+            const firstItem = root.querySelector(".skyline-hourly-item-shell");
+            if (!firstItem) {{
+              return 320;
+            }}
+            const gap = parseFloat(window.getComputedStyle(track).gap || "0");
+            return (firstItem.getBoundingClientRect().width + gap) * 4;
+          }};
+
+          const updateControls = () => {{
+            const maxScrollLeft = Math.max(track.scrollWidth - track.clientWidth, 0);
+            const atStart = track.scrollLeft <= 4;
+            const atEnd = track.scrollLeft >= maxScrollLeft - 4;
+            prevButton.disabled = atStart;
+            nextButton.disabled = atEnd;
+            leftFade.style.opacity = atStart ? "0" : "1";
+            rightFade.style.opacity = atEnd ? "0" : "1";
+            const hasOverflow = maxScrollLeft > 10;
+            prevButton.style.display = hasOverflow ? "inline-flex" : "none";
+            nextButton.style.display = hasOverflow ? "inline-flex" : "none";
+            leftFade.style.display = hasOverflow ? "block" : "none";
+            rightFade.style.display = hasOverflow ? "block" : "none";
+          }};
+
+          prevButton.addEventListener("click", () => {{
+            track.scrollBy({{ left: -getScrollStep(), behavior: "smooth" }});
+          }});
+
+          nextButton.addEventListener("click", () => {{
+            track.scrollBy({{ left: getScrollStep(), behavior: "smooth" }});
+          }});
+
+          track.addEventListener("scroll", () => updateControls(), {{ passive: true }});
+          track.addEventListener("wheel", (event) => {{
+            if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {{
+              return;
+            }}
+            track.scrollLeft += event.deltaY;
+            event.preventDefault();
+          }}, {{ passive: false }});
+
+          if (window.ResizeObserver) {{
+            const observer = new ResizeObserver(() => {{
+              updateControls();
+              setFrameHeight();
+            }});
+            observer.observe(root);
+            observer.observe(track);
+          }}
+
+          window.setTimeout(() => {{
+            updateControls();
+            setFrameHeight();
+          }}, 40);
+        </script>
+        """,
+        height=170,
+    )
+    return True
 
 
 def refresh_weather_with_hourly_data(weather_to_show, forecast_index):
@@ -4565,7 +5512,13 @@ def main():
     render_section_transition(active_section, CONTENT_SECTIONS)
     render_current_conditions_section(weather_to_show, speed_symbol, converted_wind, temp_symbol, use_fahrenheit)
     if active_section == "Overview":
+        if render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, instance_id="overview_main"):
+            render_soft_section_divider()
+        else:
+            render_soft_section_divider("persistent")
         render_forecast_section(weather_to_show, temp_symbol, use_fahrenheit)
+    else:
+        render_soft_section_divider("persistent")
     render_weather_tabbed_section(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit)
 
 
