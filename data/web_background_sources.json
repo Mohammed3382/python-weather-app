@@ -1,0 +1,236 @@
+[
+    {
+        "file":  "clear_cumulus_01",
+        "scene":  "clear",
+        "title":  "Clear Blue Sky with Fluffy Clouds",
+        "pexels_id":  "31195940",
+        "image_url":  "https://images.pexels.com/photos/31195940/pexels-photo-31195940.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\clear_cumulus_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "clear_cumulus_02",
+        "scene":  "clear",
+        "title":  "Cloudy Sky",
+        "pexels_id":  "531756",
+        "image_url":  "https://images.pexels.com/photos/531756/pexels-photo-531756.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\clear_cumulus_02.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "clear_cumulus_03",
+        "scene":  "clear",
+        "title":  "Photo of a Cloudy Sky",
+        "pexels_id":  "15800382",
+        "image_url":  "https://images.pexels.com/photos/15800382/pexels-photo-15800382.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\clear_cumulus_03.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "partly_sunlit_01",
+        "scene":  "partly-cloudy",
+        "title":  "Dramatic Sky with Sunlit Clouds at Daytime",
+        "pexels_id":  "34803326",
+        "image_url":  "https://images.pexels.com/photos/34803326/pexels-photo-34803326.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\partly_sunlit_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "partly_sunlit_02",
+        "scene":  "partly-cloudy",
+        "title":  "View of the Sky with Clouds and Bright Sunlight",
+        "pexels_id":  "19754770",
+        "image_url":  "https://images.pexels.com/photos/19754770/pexels-photo-19754770.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\partly_sunlit_02.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "partly_sunrays_01",
+        "scene":  "partly-cloudy",
+        "title":  "Dramatic Sky with Sun Rays and Clouds",
+        "pexels_id":  "32557220",
+        "image_url":  "https://images.pexels.com/photos/32557220/pexels-photo-32557220.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\partly_sunrays_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "partly_soft_01",
+        "scene":  "partly-cloudy",
+        "title":  "Bright Cloud Field",
+        "pexels_id":  "5186955",
+        "image_url":  "https://images.pexels.com/photos/5186955/pexels-photo-5186955.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\partly_soft_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "overcast_layers_01",
+        "scene":  "mostly-cloudy",
+        "title":  "Overcast Clouds in the Sky",
+        "pexels_id":  "8394119",
+        "image_url":  "https://images.pexels.com/photos/8394119/pexels-photo-8394119.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\overcast_layers_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "overcast_dense_01",
+        "scene":  "overcast",
+        "title":  "Moody Overcast Sky with Dense Clouds",
+        "pexels_id":  "20733282",
+        "image_url":  "https://images.pexels.com/photos/20733282/pexels-photo-20733282.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\overcast_dense_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "overcast_dark_01",
+        "scene":  "overcast",
+        "title":  "Clouds on Sky",
+        "pexels_id":  "15655926",
+        "image_url":  "https://images.pexels.com/photos/15655926/pexels-photo-15655926.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\overcast_dark_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "overcast_dark_02",
+        "scene":  "overcast",
+        "title":  "Photo of a Cloudy Sky",
+        "pexels_id":  "10986562",
+        "image_url":  "https://images.pexels.com/photos/10986562/pexels-photo-10986562.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\overcast_dark_02.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "overcast_dark_03",
+        "scene":  "overcast",
+        "title":  "Photo of a Cloudy Sky",
+        "pexels_id":  "12931704",
+        "image_url":  "https://images.pexels.com/photos/12931704/pexels-photo-12931704.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\overcast_dark_03.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "overcast_breaks_01",
+        "scene":  "mostly-cloudy",
+        "title":  "Layered Storm Clouds",
+        "pexels_id":  "1101104",
+        "image_url":  "https://images.pexels.com/photos/1101104/pexels-photo-1101104.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\overcast_breaks_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "overcast_dawn_01",
+        "scene":  "mostly-cloudy",
+        "title":  "Cloudy Sky at Dawn",
+        "pexels_id":  "17004507",
+        "image_url":  "https://images.pexels.com/photos/17004507/pexels-photo-17004507.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\overcast_dawn_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "rain_buildup_01",
+        "scene":  "rain-clouds",
+        "title":  "Rain Clouds",
+        "pexels_id":  "18100917",
+        "image_url":  "https://images.pexels.com/photos/18100917/pexels-photo-18100917.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\rain_buildup_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "rain_buildup_02",
+        "scene":  "rain-clouds",
+        "title":  "Rain Clouds Alt",
+        "pexels_id":  "17857844",
+        "image_url":  "https://images.pexels.com/photos/17857844/pexels-photo-17857844.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\rain_buildup_02.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "storm_mass_01",
+        "scene":  "storm-edge",
+        "title":  "Dramatic Storm Clouds",
+        "pexels_id":  "15532423",
+        "image_url":  "https://images.pexels.com/photos/15532423/pexels-photo-15532423.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\storm_mass_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "storm_mass_02",
+        "scene":  "storm-core",
+        "title":  "Storm Clouds",
+        "pexels_id":  "20363859",
+        "image_url":  "https://images.pexels.com/photos/20363859/pexels-photo-20363859.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\storm_mass_02.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "storm_lightning_01",
+        "scene":  "storm-core",
+        "title":  "Lightning on the Sky",
+        "pexels_id":  "2531709",
+        "image_url":  "https://images.pexels.com/photos/2531709/pexels-photo-2531709.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\storm_lightning_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "storm_lightning_02",
+        "scene":  "storm-core",
+        "title":  "Lightning in Clouds",
+        "pexels_id":  "5614637",
+        "image_url":  "https://images.pexels.com/photos/5614637/pexels-photo-5614637.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\storm_lightning_02.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "storm_anvil_01",
+        "scene":  "storm-edge",
+        "title":  "Thunderstorm Clouds",
+        "pexels_id":  "10424274",
+        "image_url":  "https://images.pexels.com/photos/10424274/pexels-photo-10424274.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\storm_anvil_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "twilight_moody_01",
+        "scene":  "twilight",
+        "title":  "Cloudy Sky at Dusk",
+        "pexels_id":  "2127605",
+        "image_url":  "https://images.pexels.com/photos/2127605/pexels-photo-2127605.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\twilight_moody_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "twilight_pastel_01",
+        "scene":  "twilight",
+        "title":  "Pastel Evening Clouds",
+        "pexels_id":  "11720302",
+        "image_url":  "https://images.pexels.com/photos/11720302/pexels-photo-11720302.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\twilight_pastel_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "sunbreak_01",
+        "scene":  "partly-cloudy",
+        "title":  "Dramatic Sky with Storm Clouds",
+        "pexels_id":  "27354786",
+        "image_url":  "https://images.pexels.com/photos/27354786/pexels-photo-27354786.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\sunbreak_01.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "sunbreak_02",
+        "scene":  "partly-cloudy",
+        "title":  "Dramatic Sky with Cloud-Covered Sun",
+        "pexels_id":  "28436458",
+        "image_url":  "https://images.pexels.com/photos/28436458/pexels-photo-28436458.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\sunbreak_02.jpg",
+        "status":  "downloaded"
+    },
+    {
+        "file":  "night_clouds_01",
+        "scene":  "night",
+        "title":  "A night sky with clouds and stars",
+        "pexels_id":  "27814006",
+        "image_url":  "https://images.pexels.com/photos/27814006/pexels-photo-27814006.jpeg?auto=compress\u0026cs=tinysrgb\u0026fit=crop\u0026w=1920\u0026h=1080",
+        "local_path":  "images\\web\\night_clouds_01.jpg",
+        "status":  "downloaded"
+    }
+]

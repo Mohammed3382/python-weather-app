@@ -1,0 +1,92 @@
+{
+  "notes": [
+    "These are the scene families that still need dedicated AI-generated sky backgrounds.",
+    "Prompts are written to match the current app style: sky-focused, atmospheric, high quality, no buildings, no people, no text."
+  ],
+  "targets": [
+    {
+      "id": "mostly_cloudy_day_dense",
+      "scene_key": "mostly-cloudy",
+      "priority": "high",
+      "prompt": "Wide weather app background, mostly cloudy midday sky, dense layered cloud cover with only small patches of muted blue, soft natural light, realistic atmospheric depth, no ground objects, no buildings, no people, no text, photorealistic, clean composition for UI background."
+    },
+    {
+      "id": "overcast_day_heavy",
+      "scene_key": "overcast",
+      "priority": "high",
+      "prompt": "Wide weather app background, fully overcast daytime sky, thick heavy stratiform clouds, dramatic gray tonal variation, moody but readable, realistic sky texture, no land features, no buildings, no people, no text, photorealistic, polished background image."
+    },
+    {
+      "id": "mostly_cloudy_morning",
+      "scene_key": "mostly-cloudy",
+      "priority": "high",
+      "prompt": "Wide weather app background, early morning mostly cloudy sky, cool pale light, large cloud banks with minimal blue gaps, soft horizon glow, realistic cloud depth, no houses, no skyline, no people, no text, photorealistic."
+    },
+    {
+      "id": "overcast_rain_day",
+      "scene_key": "overcast-rain",
+      "priority": "high",
+      "prompt": "Wide weather app background, rainy overcast daytime sky, heavy dark rain clouds, visible distant rainfall curtains, moody atmospheric depth, realistic wet-weather light, no foreground objects, no buildings, no people, no text, photorealistic."
+    },
+    {
+      "id": "rain_clouds_day",
+      "scene_key": "rain-clouds",
+      "priority": "high",
+      "prompt": "Wide weather app background, cloudy rainy daytime sky, thick stormy cloud layers, intermittent rainfall in the distance, cool gray-blue palette, realistic weather atmosphere, no city elements, no people, no text, photorealistic."
+    },
+    {
+      "id": "storm_front_day",
+      "scene_key": "storm-edge",
+      "priority": "high",
+      "prompt": "Wide weather app background, approaching thunderstorm in daytime, dark storm front rolling over a muted sky, strong cloud texture, charged atmosphere, subtle distant rain shafts, no ground objects, no buildings, no people, no text, photorealistic."
+    },
+    {
+      "id": "storm_core_day",
+      "scene_key": "storm-core",
+      "priority": "high",
+      "prompt": "Wide weather app background, severe thunderstorm sky in daytime, dense black-blue storm clouds with lightning glow inside the cloud mass, dramatic realistic atmosphere, no landscape detail, no buildings, no people, no text, photorealistic."
+    },
+    {
+      "id": "dawn_cloud_layers",
+      "scene_key": "mostly-cloudy",
+      "priority": "medium",
+      "prompt": "Wide weather app background, dawn sky with thick cloud cover, subtle sunrise light behind layered clouds, cool lavender and steel blue tones, realistic morning atmosphere, no land objects, no buildings, no people, no text, photorealistic."
+    },
+    {
+      "id": "foggy_morning_open_sky",
+      "scene_key": "mist",
+      "priority": "medium",
+      "prompt": "Wide weather app background, misty morning sky with light fog suspended in the air, soft diffused sunlight, pale gray-blue atmosphere, realistic fog depth, no trees, no buildings, no people, no text, photorealistic."
+    },
+    {
+      "id": "dense_fog_day",
+      "scene_key": "fog-veil",
+      "priority": "medium",
+      "prompt": "Wide weather app background, dense daytime fog and clouded sky, low visibility atmosphere, soft silver-gray tones, smooth realistic haze, no landmarks, no buildings, no people, no text, photorealistic."
+    },
+    {
+      "id": "snow_overcast_day",
+      "scene_key": "overcast-snow",
+      "priority": "medium",
+      "prompt": "Wide weather app background, heavy snow sky in daytime, thick overcast clouds with snowfall in the distance, cold blue-gray palette, realistic snowy atmosphere, no trees, no houses, no people, no text, photorealistic."
+    },
+    {
+      "id": "snow_showers_day",
+      "scene_key": "partly-cloudy-snow",
+      "priority": "medium",
+      "prompt": "Wide weather app background, daytime snow showers with mixed cloud cover, bright cold light filtered through clouds, realistic snow atmosphere, no buildings, no people, no text, photorealistic."
+    },
+    {
+      "id": "night_rain_clouds",
+      "scene_key": "rain-clouds",
+      "priority": "medium",
+      "prompt": "Wide weather app background, rainy night sky with deep cloud cover, dim urban-free atmosphere, subtle reflected light in the clouds, realistic wet night mood, no buildings, no people, no text, photorealistic."
+    },
+    {
+      "id": "night_fog_clear_mix",
+      "scene_key": "fog-veil",
+      "priority": "medium",
+      "prompt": "Wide weather app background, nighttime fog under a clouded sky, cool moonlit haze, low-contrast atmosphere, realistic depth, no skyline, no people, no text, photorealistic."
+    }
+  ]
+}

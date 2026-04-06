@@ -97,8 +97,8 @@ SKY_PHASE_STYLE_MAP = {
 
 WEATHER_STYLE_MAP = {
     "Sunny": {
-        "tint_top": "rgba(255, 255, 255, 0.02)",
-        "tint_bottom": "rgba(255, 209, 134, 0.04)",
+        "tint_top": "rgba(32, 62, 102, 0.10)",
+        "tint_bottom": "rgba(139, 111, 76, 0.10)",
         "texture": None,
         "texture_opacity": 0.0,
         "texture_blend": "normal",
@@ -140,6 +140,213 @@ WEATHER_STYLE_MAP = {
     },
 }
 
+SCENE_IMAGE_POOL_MAP = {
+    "clear": [
+        "images/web/clear_cumulus_01.jpg",
+        "images/web/clear_cumulus_02.jpg",
+        "images/web/clear_cumulus_03.jpg",
+        "images/variants/sunny_mute.jpg",
+        "images/variants/sunny_soft.jpg",
+        "images/default.jpg",
+    ],
+    "partly-cloudy": [
+        "images/web/partly_soft_01.jpg",
+        "images/web/partly_sunlit_01.jpg",
+        "images/web/partly_sunrays_01.jpg",
+        "images/web/sunbreak_01.jpg",
+        "images/web/sunbreak_02.jpg",
+        "images/variants/partly_cloudy_soft.jpg",
+        "images/variants/sunny_soft.jpg",
+        "images/default.jpg",
+    ],
+    "mostly-cloudy": [
+        "images/web/overcast_layers_01.jpg",
+        "images/web/overcast_breaks_01.jpg",
+        "images/web/overcast_dawn_01.jpg",
+        "images/variants/cloudy_slate.jpg",
+        "images/variants/cloudy_steel.jpg",
+        "images/cloudy.jpg",
+    ],
+    "overcast": [
+        "images/web/overcast_dense_01.jpg",
+        "images/web/overcast_dark_01.jpg",
+        "images/web/overcast_dark_02.jpg",
+        "images/web/overcast_dark_03.jpg",
+        "images/web/overcast_layers_01.jpg",
+        "images/web/overcast_breaks_01.jpg",
+        "images/variants/cloudy_slate.jpg",
+        "images/cloudy.jpg",
+        "images/variants/cloudy_steel.jpg",
+    ],
+    "sun-showers": [
+        "images/web/partly_sunlit_01.jpg",
+        "images/web/sunbreak_01.jpg",
+        "images/web/overcast_breaks_01.jpg",
+        "images/variants/partly_cloudy_soft.jpg",
+        "images/variants/cloudy_steel.jpg",
+        "images/variants/sunny_soft.jpg",
+    ],
+    "showers": [
+        "images/web/rain_buildup_01.jpg",
+        "images/web/rain_buildup_02.jpg",
+        "images/web/overcast_breaks_01.jpg",
+        "images/web/overcast_layers_01.jpg",
+        "images/variants/cloudy_steel.jpg",
+        "images/variants/rainy_steel.jpg",
+        "images/variants/cloudy_slate.jpg",
+    ],
+    "rain-clouds": [
+        "images/web/rain_buildup_01.jpg",
+        "images/web/rain_buildup_02.jpg",
+        "images/web/overcast_dark_03.jpg",
+        "images/web/storm_mass_02.jpg",
+        "images/variants/cloudy_slate.jpg",
+        "images/variants/rainy_steel.jpg",
+        "images/variants/rainy_nightfall.jpg",
+    ],
+    "overcast-rain": [
+        "images/web/storm_mass_01.jpg",
+        "images/web/storm_mass_02.jpg",
+        "images/web/overcast_dark_03.jpg",
+        "images/web/rain_buildup_01.jpg",
+        "images/variants/cloudy_slate.jpg",
+        "images/variants/rainy_nightfall.jpg",
+        "images/variants/rainy_steel.jpg",
+    ],
+    "sun-flurries": [
+        "images/variants/snowy_blue.jpg",
+        "images/variants/partly_cloudy_soft.jpg",
+        "images/snowy.jpg",
+    ],
+    "partly-cloudy-snow": [
+        "images/variants/snowy_blue.jpg",
+        "images/snowy.jpg",
+        "images/morning.png",
+    ],
+    "snow-clouds": [
+        "images/variants/snowy_blue.jpg",
+        "images/variants/snowy_storm.jpg",
+        "images/snowy.jpg",
+    ],
+    "overcast-snow": [
+        "images/variants/snowy_storm.jpg",
+        "images/variants/snowy_blue.jpg",
+        "images/snowy.jpg",
+    ],
+    "mist": [
+        "images/web/overcast_dense_01.jpg",
+        "images/web/overcast_layers_01.jpg",
+        "images/variants/foggy_silver.jpg",
+        "images/foggy.png",
+        "images/morning.png",
+    ],
+    "fog-veil": [
+        "images/web/overcast_dense_01.jpg",
+        "images/web/overcast_layers_01.jpg",
+        "images/variants/foggy_silver.jpg",
+        "images/foggy.png",
+        "images/cloudy.jpg",
+    ],
+    "storm-edge": [
+        "images/web/storm_mass_01.jpg",
+        "images/web/storm_anvil_01.jpg",
+        "images/web/storm_mass_02.jpg",
+        "images/web/storm_lightning_01.jpg",
+        "images/web/overcast_breaks_01.jpg",
+        "images/thunderstorm.png",
+        "images/variants/cloudy_slate.jpg",
+        "images/variants/rainy_nightfall.jpg",
+    ],
+    "storm-core": [
+        "images/web/storm_lightning_01.jpg",
+        "images/web/storm_mass_01.jpg",
+        "images/web/storm_mass_02.jpg",
+        "images/web/storm_anvil_01.jpg",
+        "images/thunderstorm.png",
+        "images/variants/rainy_nightfall.jpg",
+        "images/variants/cloudy_slate.jpg",
+    ],
+}
+
+SCENE_PHASE_IMAGE_POOL_MAP = {
+    "night": {
+        "clear": [
+            "images/web/night_clouds_01.jpg",
+            "images/night.png",
+        ],
+        "partly-cloudy": [
+            "images/web/night_clouds_01.jpg",
+            "images/evening.png",
+        ],
+    },
+    "evening": {
+        "clear": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+        "partly-cloudy": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+        "mostly-cloudy": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+        "overcast": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+    },
+    "sunrise": {
+        "clear": [
+            "images/web/twilight_pastel_01.jpg",
+        ],
+        "partly-cloudy": [
+            "images/web/twilight_pastel_01.jpg",
+            "images/web/partly_sunlit_01.jpg",
+        ],
+        "mostly-cloudy": [
+            "images/web/overcast_dawn_01.jpg",
+        ],
+        "overcast": [
+            "images/web/overcast_dawn_01.jpg",
+        ],
+    },
+    "twilight": {
+        "clear": [
+            "images/web/twilight_pastel_01.jpg",
+            "images/web/twilight_moody_01.jpg",
+        ],
+        "partly-cloudy": [
+            "images/web/twilight_pastel_01.jpg",
+            "images/web/twilight_moody_01.jpg",
+        ],
+        "mostly-cloudy": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+        "overcast": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+        "rain-clouds": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+        "overcast-rain": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+    },
+    "sunset": {
+        "clear": [
+            "images/web/twilight_pastel_01.jpg",
+        ],
+        "partly-cloudy": [
+            "images/web/twilight_pastel_01.jpg",
+            "images/web/sunbreak_01.jpg",
+        ],
+        "mostly-cloudy": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+        "overcast": [
+            "images/web/twilight_moody_01.jpg",
+        ],
+    },
+}
+
 
 def get_background_path(condition):
     return BACKGROUND_MAP.get(condition, "images/default.png")
@@ -153,6 +360,184 @@ def _stable_variant_index(parts, variant_count):
     normalized = "|".join(str(part or "") for part in parts)
     digest = hashlib.md5(normalized.encode("utf-8")).hexdigest()
     return int(digest[:8], 16) % max(1, variant_count)
+
+
+def _stable_unit(parts):
+    normalized = "|".join(str(part or "") for part in parts)
+    digest = hashlib.md5(normalized.encode("utf-8")).hexdigest()
+    return int(digest[:12], 16) / float(0xFFFFFFFFFFFF)
+
+
+def _stable_range(parts, minimum, maximum):
+    return minimum + (_stable_unit(parts) * (maximum - minimum))
+
+
+def _resolve_visual_scene(condition, cloud_cover, precipitation, rain_chance, temperature):
+    cloud_factor = _clamp(cloud_cover / 100, 0.0, 1.0)
+    precipitation_factor = _clamp(precipitation / 1.1, 0.0, 1.0)
+    wetness = max(precipitation_factor, _clamp(rain_chance / 100, 0.0, 1.0))
+
+    if condition == "Foggy":
+        scene_key = "fog-veil" if cloud_factor >= 0.64 else "mist"
+        base_condition = "Foggy"
+    elif condition == "Thunderstorm":
+        scene_key = "storm-core" if wetness >= 0.56 or cloud_factor >= 0.74 else "storm-edge"
+        base_condition = "Thunderstorm"
+    elif condition == "Snowy" or (
+        condition in {"Rainy", "Cloudy"} and temperature <= 1 and wetness >= 0.18
+    ):
+        base_condition = "Snowy"
+        if cloud_factor < 0.30 and wetness < 0.44:
+            scene_key = "sun-flurries"
+        elif cloud_factor < 0.60:
+            scene_key = "partly-cloudy-snow"
+        elif cloud_factor >= 0.84 or wetness >= 0.58:
+            scene_key = "overcast-snow"
+        else:
+            scene_key = "snow-clouds"
+    elif condition == "Rainy":
+        base_condition = "Rainy"
+        if cloud_factor < 0.24 and wetness < 0.48:
+            scene_key = "sun-showers"
+        elif cloud_factor < 0.58:
+            scene_key = "showers"
+        elif cloud_factor >= 0.84 or wetness >= 0.60:
+            scene_key = "overcast-rain"
+        else:
+            scene_key = "rain-clouds"
+    else:
+        if cloud_factor <= 0.10:
+            scene_key = "clear"
+            base_condition = "Sunny"
+        elif cloud_factor <= 0.36:
+            scene_key = "partly-cloudy"
+            base_condition = "Sunny"
+        elif cloud_factor <= 0.70:
+            scene_key = "mostly-cloudy"
+            base_condition = "Cloudy"
+        else:
+            scene_key = "overcast"
+            base_condition = "Cloudy"
+
+    return {
+        "scene_key": scene_key,
+        "base_condition": base_condition,
+        "cloud_factor": cloud_factor,
+        "wetness": wetness,
+    }
+
+
+def _resolve_scene_base_image_path(scene_key, phase, variant_parts, phase_default_image):
+    pool = list(SCENE_IMAGE_POOL_MAP.get(scene_key, []))
+    preferred_pool = list((SCENE_PHASE_IMAGE_POOL_MAP.get(phase) or {}).get(scene_key, []))
+    if preferred_pool:
+        pool = [*preferred_pool, *pool]
+    if phase in {"night", "evening"}:
+        if scene_key == "clear":
+            pool = ["images/night.png", "images/variants/evening_deep.jpg", *pool]
+        elif scene_key in {"partly-cloudy", "mostly-cloudy", "overcast"}:
+            pool = ["images/evening.png", "images/variants/evening_deep.jpg", *pool]
+        elif scene_key in {"sun-showers", "showers", "rain-clouds", "overcast-rain", "storm-edge", "storm-core"}:
+            pool = ["images/variants/rainy_nightfall.jpg", "images/evening.png", *pool]
+        elif scene_key in {"sun-flurries", "partly-cloudy-snow", "snow-clouds", "overcast-snow"}:
+            pool = ["images/night.png", "images/variants/snowy_storm.jpg", *pool]
+        elif scene_key in {"mist", "fog-veil"}:
+            pool = ["images/evening.png", "images/variants/foggy_silver.jpg", *pool]
+    elif phase in {"sunrise", "sunset", "twilight"}:
+        transition_image = "images/sunrise.png" if phase == "sunrise" else "images/sunset.png"
+        if scene_key in {"clear", "partly-cloudy"}:
+            pool = [transition_image, "images/variants/sunny_soft.jpg", *pool]
+        elif scene_key in {"mostly-cloudy", "overcast"}:
+            pool = [transition_image, "images/variants/cloudy_steel.jpg", *pool]
+        elif scene_key in {"sun-showers", "showers", "rain-clouds", "overcast-rain"}:
+            pool = [transition_image, "images/variants/rainy_steel.jpg", *pool]
+        elif scene_key in {"sun-flurries", "partly-cloudy-snow", "snow-clouds", "overcast-snow"}:
+            pool = [transition_image, "images/variants/snowy_blue.jpg", *pool]
+        elif scene_key in {"mist", "fog-veil"}:
+            pool = [transition_image, "images/variants/foggy_silver.jpg", *pool]
+        elif scene_key in {"storm-edge", "storm-core"}:
+            pool = [transition_image, "images/variants/rainy_nightfall.jpg", *pool]
+    elif phase == "morning":
+        if scene_key in {"clear", "partly-cloudy"}:
+            pool = ["images/morning.png", *pool]
+        elif scene_key in {"mist", "fog-veil"}:
+            pool = ["images/morning.png", "images/variants/foggy_silver.jpg", *pool]
+
+    pool = [path for path in pool if path]
+    if phase_default_image and scene_key in {"clear", "partly-cloudy"} and phase != "day":
+        pool.append(phase_default_image)
+
+    unique_pool = []
+    seen_paths = set()
+    for path in pool:
+        if path in seen_paths:
+            continue
+        if not Path(path).exists():
+            continue
+        seen_paths.add(path)
+        unique_pool.append(path)
+
+    if not unique_pool:
+        return phase_default_image
+
+    preferred_existing = [path for path in preferred_pool if Path(path).exists()]
+    candidate_pool = preferred_existing or unique_pool
+    variant_index = _stable_variant_index(variant_parts + [phase, scene_key], len(candidate_pool))
+    return candidate_pool[variant_index]
+
+
+def _adapt_scene_layers_for_base_image(scene_key, base_image_path, cloud_layers, weather_overlay_layers):
+    base_name = Path(base_image_path or "").name.lower()
+    heavy_cloud_photo = any(
+        marker in base_name
+        for marker in (
+            "cloudy",
+            "overcast",
+            "cloud",
+            "sunbreak",
+            "twilight_moody",
+            "storm_mass",
+        )
+    )
+    wet_weather_photo = any(
+        marker in base_name
+        for marker in (
+            "rainy",
+            "rain_",
+            "storm_",
+            "thunderstorm",
+            "lightning",
+            "overcast_dark",
+        )
+    )
+    storm_photo = any(
+        marker in base_name
+        for marker in ("storm_", "thunderstorm", "lightning")
+    )
+    foggy_photo = any(
+        marker in base_name
+        for marker in ("foggy", "mist", "overcast_dense")
+    )
+
+    if scene_key in {"mostly-cloudy", "overcast"} and heavy_cloud_photo:
+        return cloud_layers[:1], []
+
+    if scene_key in {"showers", "rain-clouds", "overcast-rain"} and (wet_weather_photo or heavy_cloud_photo):
+        softened_weather_layers = weather_overlay_layers[1:] if len(weather_overlay_layers) > 1 else weather_overlay_layers
+        return cloud_layers[:1], softened_weather_layers
+
+    if scene_key in {"storm-edge", "storm-core"} and storm_photo:
+        softened_weather_layers = weather_overlay_layers[1:] if len(weather_overlay_layers) > 1 else weather_overlay_layers
+        return cloud_layers[:1], softened_weather_layers
+
+    if scene_key in {"snow-clouds", "overcast-snow", "partly-cloudy-snow"} and "snowy" in base_name:
+        return cloud_layers[:1], weather_overlay_layers[:1]
+
+    if scene_key in {"mist", "fog-veil"} and foggy_photo:
+        softened_weather_layers = weather_overlay_layers[-1:] if weather_overlay_layers else []
+        return [], softened_weather_layers
+
+    return cloud_layers, weather_overlay_layers
 
 
 def _get_weather_local_datetime(weather):
@@ -319,239 +704,410 @@ def _get_nearest_hourly_snapshot(weather, local_now):
     return nearest_point if nearest_delta <= 7200 else None
 
 
-def _build_cloud_layers(phase, cloud_cover, variant_index=0):
-    if cloud_cover <= 8:
+def _build_cloud_layers(phase, cloud_cover, variant_index=0, scene_key="mostly-cloudy"):
+    density = _clamp(cloud_cover / 100, 0.0, 1.0)
+    if scene_key == "clear" and density <= 0.12:
         return []
 
-    density = _clamp(cloud_cover / 100, 0.0, 1.0)
-    if phase in {"night", "evening"}:
-        cloud_color = f"rgba(183, 202, 232, {0.14 + density * 0.14:.3f})"
-        edge_color = f"rgba(66, 88, 120, {0.10 + density * 0.10:.3f})"
+    if scene_key in {"storm-core", "storm-edge"}:
+        body_rgb = (150, 168, 198) if phase in {"night", "evening"} else (174, 186, 205)
+        edge_rgb = (33, 44, 63)
+    elif scene_key in {"overcast-rain", "rain-clouds", "showers", "overcast"}:
+        body_rgb = (196, 207, 223) if phase not in {"night", "evening"} else (170, 186, 213)
+        edge_rgb = (63, 79, 104)
+    elif scene_key in {"overcast-snow", "snow-clouds", "partly-cloudy-snow", "sun-flurries"}:
+        body_rgb = (242, 247, 255)
+        edge_rgb = (118, 140, 168)
+    elif scene_key in {"mist", "fog-veil"}:
+        body_rgb = (230, 237, 244)
+        edge_rgb = (132, 148, 166)
+    elif phase in {"night", "evening"}:
+        body_rgb = (194, 210, 236)
+        edge_rgb = (66, 88, 120)
     elif phase in {"sunrise", "sunset"}:
-        cloud_color = f"rgba(244, 206, 185, {0.12 + density * 0.12:.3f})"
-        edge_color = f"rgba(128, 103, 118, {0.08 + density * 0.08:.3f})"
+        body_rgb = (244, 214, 194)
+        edge_rgb = (128, 103, 118)
     else:
-        cloud_color = f"rgba(240, 247, 255, {0.10 + density * 0.12:.3f})"
-        edge_color = f"rgba(122, 151, 183, {0.08 + density * 0.07:.3f})"
+        body_rgb = (245, 249, 255)
+        edge_rgb = (122, 151, 183)
 
-    blur = 30 + int(density * 30)
-    cloud_profiles = [
-        {
-            "specs": [
-                (170, 148, 260, 84, 0.88),
-                (500, 128, 320, 90, 0.78),
-                (860, 150, 300, 84, 0.84),
-                (1185, 144, 264, 78, 0.70),
-                (1410, 184, 230, 68, 0.64),
-                (340, 244, 236, 68, 0.44),
-                (1030, 246, 254, 74, 0.40),
-                (678, 228, 220, 64, 0.34),
-            ],
-            "wash_height": 320,
-        },
-        {
-            "specs": [
-                (120, 118, 218, 70, 0.74),
-                (370, 190, 244, 74, 0.56),
-                (700, 122, 350, 94, 0.82),
-                (1060, 168, 262, 78, 0.64),
-                (1375, 126, 248, 72, 0.68),
-                (510, 264, 206, 60, 0.34),
-                (1220, 244, 224, 64, 0.32),
-            ],
-            "wash_height": 290,
-        },
-        {
-            "specs": [
-                (190, 212, 270, 80, 0.58),
-                (530, 218, 336, 88, 0.64),
-                (930, 196, 354, 96, 0.72),
-                (1315, 220, 286, 84, 0.56),
-                (360, 112, 206, 62, 0.32),
-                (1080, 120, 218, 66, 0.36),
-                (1470, 148, 182, 54, 0.28),
-            ],
-            "wash_height": 260,
-        },
-        {
-            "specs": [
-                (150, 150, 240, 74, 0.82),
-                (430, 118, 276, 82, 0.72),
-                (760, 172, 252, 74, 0.60),
-                (1010, 124, 310, 92, 0.82),
-                (1320, 170, 246, 74, 0.58),
-                (270, 270, 196, 56, 0.26),
-                (890, 262, 204, 58, 0.30),
-                (1450, 236, 170, 48, 0.22),
-            ],
-            "wash_height": 300,
-        },
+    scene_counts = {
+        "clear": 1,
+        "partly-cloudy": 3,
+        "mostly-cloudy": 5,
+        "overcast": 7,
+        "sun-showers": 4,
+        "showers": 5,
+        "rain-clouds": 6,
+        "overcast-rain": 7,
+        "sun-flurries": 3,
+        "partly-cloudy-snow": 4,
+        "snow-clouds": 5,
+        "overcast-snow": 7,
+        "mist": 4,
+        "fog-veil": 5,
+        "storm-edge": 6,
+        "storm-core": 7,
+    }
+    layer_count = scene_counts.get(scene_key, 5)
+    if density >= 0.82 and scene_key not in {"clear", "partly-cloudy"}:
+        layer_count += 1
+
+    if scene_key in {"clear", "partly-cloudy", "sun-showers", "sun-flurries"}:
+        top_band = (18, 28)
+        min_width, max_width = 18, 30
+    elif scene_key in {"mostly-cloudy", "showers", "partly-cloudy-snow", "mist"}:
+        top_band = (14, 32)
+        min_width, max_width = 22, 34
+    else:
+        top_band = (10, 34)
+        min_width, max_width = 26, 42
+
+    if scene_key in {"storm-core", "overcast-rain", "overcast", "overcast-snow", "fog-veil"}:
+        body_alpha_min, body_alpha_max = 0.18, 0.34
+        edge_alpha_min, edge_alpha_max = 0.12, 0.24
+    elif scene_key in {"mostly-cloudy", "rain-clouds", "snow-clouds", "showers", "partly-cloudy-snow"}:
+        body_alpha_min, body_alpha_max = 0.13, 0.28
+        edge_alpha_min, edge_alpha_max = 0.08, 0.18
+    else:
+        body_alpha_min, body_alpha_max = 0.08, 0.18
+        edge_alpha_min, edge_alpha_max = 0.04, 0.10
+
+    layers = [
+        f"linear-gradient(180deg, rgba({body_rgb[0]},{body_rgb[1]},{body_rgb[2]},{0.025 + density * 0.050:.3f}) 0%, rgba({edge_rgb[0]},{edge_rgb[1]},{edge_rgb[2]},0) 42%)"
     ]
-    selected_profile = cloud_profiles[variant_index % len(cloud_profiles)]
-    cloud_specs = selected_profile["specs"]
-    visible_count = 5 if density < 0.34 else 6 if density < 0.58 else 7 if density < 0.82 else len(cloud_specs)
-    cloud_markup = []
-    for cx, cy, rx, ry, opacity in cloud_specs[:visible_count]:
-        alpha = opacity * (0.52 + density * 0.44)
-        cloud_markup.append(
-            f"""
-            <g opacity="{alpha:.3f}">
-                <ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" fill="{cloud_color}" filter="url(#cloudBlur)"/>
-                <ellipse cx="{cx - (rx * 0.16):.1f}" cy="{cy + 10}" rx="{rx * 0.72:.1f}" ry="{ry * 0.78:.1f}" fill="{edge_color}" filter="url(#cloudBlurSoft)"/>
-                <ellipse cx="{cx + (rx * 0.18):.1f}" cy="{cy - 4}" rx="{rx * 0.52:.1f}" ry="{ry * 0.64:.1f}" fill="{cloud_color}" filter="url(#cloudBlurSoft)"/>
-            </g>
-            """
+
+    for index in range(layer_count):
+        seed = [phase, scene_key, variant_index, index]
+        x = _stable_range(seed + ["x"], 10, 92)
+        y = _stable_range(seed + ["y"], top_band[0], top_band[1] + density * 8)
+        width = _stable_range(seed + ["w"], min_width, max_width)
+        height = width * _stable_range(seed + ["ratio"], 0.28, 0.44)
+        body_alpha = _stable_range(seed + ["body-alpha"], body_alpha_min, body_alpha_max) * (0.72 + density * 0.46)
+        edge_alpha = _stable_range(seed + ["edge-alpha"], edge_alpha_min, edge_alpha_max) * (0.72 + density * 0.36)
+        fade_stop = _stable_range(seed + ["fade"], 72, 84)
+        puff_x = x + _stable_range(seed + ["puff-x"], -6, 7)
+        puff_y = y + _stable_range(seed + ["puff-y"], -2, 5)
+        puff_width = width * _stable_range(seed + ["puff-w"], 0.56, 0.78)
+        puff_height = height * _stable_range(seed + ["puff-h"], 0.82, 1.08)
+        layers.extend(
+            [
+                (
+                    f"radial-gradient(ellipse {width:.1f}% {height:.1f}% at {x:.1f}% {y + 2:.1f}%, "
+                    f"rgba({edge_rgb[0]},{edge_rgb[1]},{edge_rgb[2]},{edge_alpha:.3f}) 0%, "
+                    f"rgba({edge_rgb[0]},{edge_rgb[1]},{edge_rgb[2]},{edge_alpha * 0.55:.3f}) 44%, "
+                    f"rgba({edge_rgb[0]},{edge_rgb[1]},{edge_rgb[2]},0) {fade_stop - 6:.1f}%)"
+                ),
+                (
+                    f"radial-gradient(ellipse {width:.1f}% {height:.1f}% at {x:.1f}% {y:.1f}%, "
+                    f"rgba({body_rgb[0]},{body_rgb[1]},{body_rgb[2]},{body_alpha:.3f}) 0%, "
+                    f"rgba({body_rgb[0]},{body_rgb[1]},{body_rgb[2]},{body_alpha * 0.86:.3f}) 36%, "
+                    f"rgba({body_rgb[0]},{body_rgb[1]},{body_rgb[2]},{body_alpha * 0.42:.3f}) 58%, "
+                    f"rgba({body_rgb[0]},{body_rgb[1]},{body_rgb[2]},0) {fade_stop:.1f}%)"
+                ),
+            ]
         )
-    svg = f"""
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMin slice">
-        <defs>
-            <linearGradient id="topWash" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="{cloud_color}" stop-opacity="{0.10 + density * 0.10:.3f}"/>
-                <stop offset="100%" stop-color="{edge_color}" stop-opacity="0"/>
-            </linearGradient>
-            <filter id="cloudBlur" x="-25%" y="-25%" width="150%" height="150%">
-                <feGaussianBlur stdDeviation="{blur}"/>
-            </filter>
-            <filter id="cloudBlurSoft" x="-25%" y="-25%" width="150%" height="150%">
-                <feGaussianBlur stdDeviation="{max(12, blur - 12)}"/>
-            </filter>
-        </defs>
-        <rect width="1600" height="900" fill="transparent"/>
-        <rect width="1600" height="{selected_profile['wash_height']}" fill="url(#topWash)"/>
-        {''.join(cloud_markup)}
-    </svg>
-    """
-    return [
-        f'url("{_svg_data_uri(svg)}") center top / cover no-repeat',
-        f"linear-gradient(180deg, rgba(255,255,255,{0.012 + density * 0.022:.3f}) 0%, rgba(255,255,255,0) 45%)",
-    ]
+        if scene_key != "clear" or density > 0.14:
+            layers.append(
+                (
+                    f"radial-gradient(ellipse {puff_width:.1f}% {puff_height:.1f}% at {puff_x:.1f}% {puff_y:.1f}%, "
+                    f"rgba({body_rgb[0]},{body_rgb[1]},{body_rgb[2]},{body_alpha * 0.68:.3f}) 0%, "
+                    f"rgba({body_rgb[0]},{body_rgb[1]},{body_rgb[2]},{body_alpha * 0.34:.3f}) 52%, "
+                    f"rgba({body_rgb[0]},{body_rgb[1]},{body_rgb[2]},0) {fade_stop - 10:.1f}%)"
+                )
+            )
+
+    return layers
 
 
-def _build_weather_overlay_layers(condition, intensity, phase, variant_index=0):
+def _build_rain_overlay_layers(scene_key, intensity, variant_index=0, thunder=False):
     overlay_intensity = _clamp(intensity, 0.0, 1.0)
     if overlay_intensity <= 0:
         return []
 
-    if condition == "Rainy":
-        rain_variants = [
-            {"count": 34, "x_step": 43, "y_step": 59, "dx": 26, "base": 46, "step": 14},
-            {"count": 40, "x_step": 37, "y_step": 47, "dx": 18, "base": 38, "step": 11},
-            {"count": 28, "x_step": 52, "y_step": 61, "dx": 34, "base": 58, "step": 18},
-        ]
-        rain = rain_variants[variant_index % len(rain_variants)]
-        stroke_alpha = 0.12 + overlay_intensity * 0.18
-        drops = []
-        for index in range(rain["count"]):
-            x = 40 + ((index * rain["x_step"]) % 1520)
-            y = -120 + ((index * rain["y_step"]) % 760)
-            length = rain["base"] + (index % 5) * rain["step"]
-            drops.append(
-                f'<line x1="{x}" y1="{y}" x2="{x - rain["dx"]}" y2="{y + length}" stroke="rgba(212,228,255,{stroke_alpha:.3f})" stroke-width="{1.0 + (index % 3) * 0.34:.2f}" stroke-linecap="round"/>'
+    if thunder or scene_key in {"storm-core", "storm-edge"}:
+        far_count, near_count = 48, 32
+        length_range = (58, 148)
+        width_range = (1.0, 2.5)
+        alpha_range = (0.16, 0.34)
+        dx_range = (18, 42)
+        mist_alpha = 0.08 + overlay_intensity * 0.06
+    elif scene_key == "overcast-rain":
+        far_count, near_count = 40, 24
+        length_range = (52, 128)
+        width_range = (0.9, 2.1)
+        alpha_range = (0.12, 0.28)
+        dx_range = (14, 34)
+        mist_alpha = 0.06 + overlay_intensity * 0.05
+    elif scene_key == "showers":
+        far_count, near_count = 28, 14
+        length_range = (32, 82)
+        width_range = (0.7, 1.5)
+        alpha_range = (0.08, 0.18)
+        dx_range = (10, 24)
+        mist_alpha = 0.03 + overlay_intensity * 0.03
+    else:
+        far_count, near_count = 34, 18
+        length_range = (40, 102)
+        width_range = (0.8, 1.8)
+        alpha_range = (0.10, 0.22)
+        dx_range = (12, 28)
+        mist_alpha = 0.04 + overlay_intensity * 0.04
+
+    def _build_drop_paths(count, depth_key, blur_key):
+        paths = []
+        for index in range(count):
+            seed = [scene_key, variant_index, depth_key, index]
+            x = _stable_range(seed + ["x"], -120, 1720)
+            y = _stable_range(seed + ["y"], -180, 860)
+            length = _stable_range(seed + ["length"], length_range[0], length_range[1]) * (0.76 + overlay_intensity * 0.44)
+            dx = _stable_range(seed + ["dx"], dx_range[0], dx_range[1])
+            end_x = x - dx
+            end_y = y + length
+            control_x = x - (dx * _stable_range(seed + ["curve"], 0.28, 0.78)) + _stable_range(seed + ["sway"], -8, 8)
+            control_y = y + (length * _stable_range(seed + ["control-y"], 0.34, 0.62))
+            stroke_alpha = _stable_range(seed + ["alpha"], alpha_range[0], alpha_range[1])
+            stroke_width = _stable_range(seed + ["width"], width_range[0], width_range[1])
+            if blur_key == "far":
+                stroke_alpha *= 0.76
+                stroke_width *= 0.84
+            paths.append(
+                (
+                    f'<path d="M {x:.1f} {y:.1f} Q {control_x:.1f} {control_y:.1f} {end_x:.1f} {end_y:.1f}" '
+                    f'stroke="rgba(218,231,255,{stroke_alpha:.3f})" stroke-width="{stroke_width:.2f}" '
+                    f'stroke-linecap="round" fill="none"/>'
+                )
             )
-        svg = f"""
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
-            <defs>
-                <filter id="rainBlur"><feGaussianBlur stdDeviation="{0.24 + overlay_intensity * 0.5:.2f}"/></filter>
-            </defs>
-            <g filter="url(#rainBlur)">{''.join(drops)}</g>
-        </svg>
-        """
-        return [
-            f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
-            f"linear-gradient(180deg, rgba(157, 188, 232, {0.035 + overlay_intensity * 0.042:.3f}) 0%, rgba(255,255,255,0) 54%)",
-        ]
+        return "".join(paths)
+
+    lightning = ""
+    if thunder:
+        flash_alpha = 0.18 + overlay_intensity * 0.12
+        lightning = (
+            f'<g opacity="{0.72 + overlay_intensity * 0.18:.3f}">'
+            f'<polyline points="1232,96 1188,210 1234,210 1172,382 1214,382 1168,520" '
+            f'fill="none" stroke="rgba(248,251,255,{flash_alpha:.3f})" stroke-width="7" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<polyline points="1090,148 1058,226 1094,226 1048,330" fill="none" '
+            f'stroke="rgba(214,228,255,{flash_alpha * 0.52:.3f})" stroke-width="4.5" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+            f'</g>'
+        )
+
+    svg = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
+        <defs>
+            <filter id="rainFarBlur"><feGaussianBlur stdDeviation="{0.8 + overlay_intensity * 0.8:.2f}"/></filter>
+            <filter id="rainNearBlur"><feGaussianBlur stdDeviation="{0.24 + overlay_intensity * 0.36:.2f}"/></filter>
+            <filter id="flashBlur"><feGaussianBlur stdDeviation="{2.6 + overlay_intensity * 1.6:.2f}"/></filter>
+        </defs>
+        <g filter="url(#rainFarBlur)">{_build_drop_paths(far_count, "far", "far")}</g>
+        <g filter="url(#rainNearBlur)">{_build_drop_paths(near_count, "near", "near")}</g>
+        <g filter="url(#flashBlur)">{lightning}</g>
+    </svg>
+    """
+    return [
+        f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
+        f"linear-gradient(180deg, rgba(158,186,226,{mist_alpha:.3f}) 0%, rgba(158,186,226,{mist_alpha * 0.55:.3f}) 26%, rgba(255,255,255,0) 62%)",
+        f"linear-gradient(180deg, rgba(28,46,74,{mist_alpha * 0.55:.3f}) 0%, rgba(28,46,74,0) 28%)",
+    ]
+
+
+def _build_snow_overlay_layers(scene_key, intensity, variant_index=0):
+    overlay_intensity = _clamp(intensity, 0.0, 1.0)
+    if overlay_intensity <= 0:
+        return []
+
+    if scene_key == "sun-flurries":
+        far_count, near_count, glow_count = 46, 18, 6
+    elif scene_key == "partly-cloudy-snow":
+        far_count, near_count, glow_count = 62, 24, 8
+    elif scene_key == "overcast-snow":
+        far_count, near_count, glow_count = 82, 32, 10
+    else:
+        far_count, near_count, glow_count = 70, 28, 8
+
+    def _build_flakes(count, depth_key, size_range, alpha_range):
+        flakes = []
+        for index in range(count):
+            seed = [scene_key, variant_index, depth_key, index]
+            x = _stable_range(seed + ["x"], -40, 1640)
+            y = _stable_range(seed + ["y"], -20, 920)
+            radius = _stable_range(seed + ["r"], size_range[0], size_range[1])
+            alpha = _stable_range(seed + ["a"], alpha_range[0], alpha_range[1])
+            flakes.append(
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius:.2f}" fill="rgba(255,255,255,{alpha:.3f})"/>'
+            )
+        return "".join(flakes)
+
+    glows = []
+    for index in range(glow_count):
+        seed = [scene_key, variant_index, "glow", index]
+        x = _stable_range(seed + ["x"], 0, 1600)
+        y = _stable_range(seed + ["y"], 40, 760)
+        radius = _stable_range(seed + ["r"], 8, 22)
+        alpha = _stable_range(seed + ["a"], 0.035, 0.085) * (0.72 + overlay_intensity * 0.32)
+        glows.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius:.2f}" fill="rgba(233,242,255,{alpha:.3f})"/>'
+        )
+
+    svg = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
+        <defs>
+            <filter id="snowFarBlur"><feGaussianBlur stdDeviation="{0.9 + overlay_intensity * 0.7:.2f}"/></filter>
+            <filter id="snowNearBlur"><feGaussianBlur stdDeviation="{0.2 + overlay_intensity * 0.2:.2f}"/></filter>
+            <filter id="snowGlowBlur"><feGaussianBlur stdDeviation="{3.0 + overlay_intensity * 2.0:.2f}"/></filter>
+        </defs>
+        <g filter="url(#snowFarBlur)">{_build_flakes(far_count, "far", (0.7, 1.9), (0.10, 0.24))}</g>
+        <g filter="url(#snowNearBlur)">{_build_flakes(near_count, "near", (1.5, 3.8), (0.16, 0.34))}</g>
+        <g filter="url(#snowGlowBlur)">{''.join(glows)}</g>
+    </svg>
+    """
+    wash_alpha = 0.03 + overlay_intensity * 0.05
+    return [
+        f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
+        f"linear-gradient(180deg, rgba(230,239,255,{wash_alpha:.3f}) 0%, rgba(230,239,255,{wash_alpha * 0.5:.3f}) 30%, rgba(255,255,255,0) 66%)",
+    ]
+
+
+def _build_fog_overlay_layers(scene_key, intensity, variant_index=0):
+    overlay_intensity = _clamp(intensity, 0.0, 1.0)
+    if overlay_intensity <= 0:
+        return []
+
+    band_count = 3 if scene_key == "mist" else 4
+    layers = []
+    for index in range(band_count):
+        seed = [scene_key, variant_index, "fog", index]
+        x = _stable_range(seed + ["x"], 14, 88)
+        y = _stable_range(seed + ["y"], 42, 78)
+        width = _stable_range(seed + ["w"], 28, 56)
+        height = _stable_range(seed + ["h"], 8, 16)
+        alpha = _stable_range(seed + ["a"], 0.06, 0.16) * (0.78 + overlay_intensity * 0.40)
+        layers.append(
+            (
+                f"radial-gradient(ellipse {width:.1f}% {height:.1f}% at {x:.1f}% {y:.1f}%, "
+                f"rgba(229,236,244,{alpha:.3f}) 0%, rgba(229,236,244,{alpha * 0.62:.3f}) 44%, "
+                f"rgba(229,236,244,0) 78%)"
+            )
+        )
+    layers.append(
+        f"linear-gradient(180deg, rgba(220,229,239,{0.06 + overlay_intensity * 0.08:.3f}) 0%, rgba(220,229,239,{0.03 + overlay_intensity * 0.04:.3f}) 34%, rgba(255,255,255,0) 74%)"
+    )
+    return layers
+
+
+def _build_weather_overlay_layers(condition, intensity, phase, variant_index=0, scene_key=None):
+    overlay_intensity = _clamp(intensity, 0.0, 1.0)
+    if overlay_intensity <= 0:
+        return []
+
+    scene_key = scene_key or condition
+
+    if condition == "Rainy":
+        return _build_rain_overlay_layers(scene_key, overlay_intensity, variant_index)
 
     if condition == "Thunderstorm":
-        storm_variants = [
-            {"count": 34, "x_step": 37, "y_step": 53, "dx": 30, "base": 52, "step": 18, "lightning": True},
-            {"count": 40, "x_step": 41, "y_step": 57, "dx": 36, "base": 66, "step": 20, "lightning": False},
-            {"count": 36, "x_step": 35, "y_step": 49, "dx": 24, "base": 44, "step": 14, "lightning": True},
-        ]
-        storm = storm_variants[variant_index % len(storm_variants)]
-        stroke_alpha = 0.16 + overlay_intensity * 0.18
-        drops = []
-        for index in range(storm["count"]):
-            x = 34 + ((index * storm["x_step"]) % 1530)
-            y = -140 + ((index * storm["y_step"]) % 760)
-            length = storm["base"] + (index % 4) * storm["step"]
-            drops.append(
-                f'<line x1="{x}" y1="{y}" x2="{x - storm["dx"]}" y2="{y + length}" stroke="rgba(228,236,255,{stroke_alpha:.3f})" stroke-width="{1.2 + (index % 3) * 0.44:.2f}" stroke-linecap="round"/>'
-            )
-        lightning = ""
-        if storm["lightning"]:
-            lightning = '<polyline points="1240,110 1182,242 1236,242 1176,392" fill="none" stroke="rgba(248,250,255,0.42)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>'
-        svg = f"""
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
-            <defs>
-                <filter id="stormBlur"><feGaussianBlur stdDeviation="{0.32 + overlay_intensity * 0.54:.2f}"/></filter>
-            </defs>
-            <g filter="url(#stormBlur)">{''.join(drops)}</g>
-            {lightning}
-        </svg>
-        """
-        return [
-            f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
-            f"radial-gradient(circle at 78% 20%, rgba(240,245,255,{0.03 + overlay_intensity * 0.06:.3f}) 0%, rgba(255,255,255,0) 12%)",
-        ]
+        return _build_rain_overlay_layers(scene_key, overlay_intensity, variant_index, thunder=True)
 
     if condition == "Snowy":
-        snow_variants = [
-            {"count": 62, "x_step": 57, "y_step": 71, "radius": 0.52},
-            {"count": 78, "x_step": 49, "y_step": 63, "radius": 0.42},
-            {"count": 54, "x_step": 67, "y_step": 79, "radius": 0.68},
-        ]
-        snow = snow_variants[variant_index % len(snow_variants)]
-        flake_alpha = 0.20 + overlay_intensity * 0.18
-        flakes = []
-        for index in range(snow["count"]):
-            x = 28 + ((index * snow["x_step"]) % 1540)
-            y = 22 + ((index * snow["y_step"]) % 860)
-            radius = 0.9 + (index % 4) * snow["radius"]
-            flakes.append(
-                f'<circle cx="{x}" cy="{y}" r="{radius:.2f}" fill="rgba(255,255,255,{flake_alpha - (index % 3) * 0.05:.3f})"/>'
-            )
-        svg = f"""
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
-            <defs>
-                <filter id="snowBlur"><feGaussianBlur stdDeviation="{0.22 + overlay_intensity * 0.28:.2f}"/></filter>
-            </defs>
-            <g filter="url(#snowBlur)">{''.join(flakes)}</g>
-        </svg>
-        """
-        return [
-            f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
-            f"linear-gradient(180deg, rgba(226,236,255,{0.025 + overlay_intensity * 0.035:.3f}) 0%, rgba(255,255,255,0) 55%)",
-        ]
+        return _build_snow_overlay_layers(scene_key, overlay_intensity, variant_index)
 
     if condition == "Foggy":
-        fog_variants = [
-            [(320, 650, 360, 96, 0.72), (890, 610, 420, 110, 0.78), (1320, 690, 310, 88, 0.64)],
-            [(260, 620, 410, 118, 0.68), (760, 570, 470, 122, 0.72), (1280, 640, 360, 96, 0.58)],
-            [(360, 700, 320, 90, 0.62), (920, 640, 390, 108, 0.70), (1380, 600, 280, 78, 0.48)],
-        ]
-        fog_variant = fog_variants[variant_index % len(fog_variants)]
-        fog_alpha = 0.06 + overlay_intensity * 0.08
-        svg = f"""
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="none">
-            <defs>
-                <filter id="fogBlur"><feGaussianBlur stdDeviation="{22 + overlay_intensity * 18:.1f}"/></filter>
-            </defs>
-            <g filter="url(#fogBlur)">
-                {''.join(
-                    f'<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" fill="rgba(223,232,242,{fog_alpha * alpha:.3f})"/>'
-                    for cx, cy, rx, ry, alpha in fog_variant
-                )}
-            </g>
-        </svg>
-        """
-        return [
-            f'url("{_svg_data_uri(svg)}") center/cover no-repeat',
-            f"linear-gradient(180deg, rgba(228,236,245,{fog_alpha:.3f}) 0%, rgba(214,226,238,{fog_alpha * 0.45:.3f}) 36%, rgba(255,255,255,0) 72%)",
-        ]
+        return _build_fog_overlay_layers(scene_key, overlay_intensity, variant_index)
 
     if condition == "Cloudy" and phase in {"night", "evening"}:
         return [
             f"linear-gradient(180deg, rgba(110,128,158,{0.04 + overlay_intensity * 0.05:.3f}) 0%, rgba(255,255,255,0) 48%)",
+        ]
+
+    return []
+
+
+def _build_scene_tone_layers(scene_key, phase, cloud_factor, wetness):
+    if scene_key in {"clear", "partly-cloudy"}:
+        top_alpha = 0.18 if scene_key == "clear" else 0.15
+        bottom_alpha = 0.10 if phase in {"day", "morning"} else 0.07
+        return [
+            f"linear-gradient(180deg, rgba(18,41,72,{top_alpha:.3f}) 0%, rgba(46,87,133,{top_alpha * 0.42:.3f}) 36%, rgba(161,120,74,{bottom_alpha:.3f}) 100%)",
+            "linear-gradient(90deg, rgba(8,18,32,0.08) 0%, rgba(8,18,32,0) 14%, rgba(8,18,32,0) 86%, rgba(8,18,32,0.08) 100%)",
+        ]
+
+    if scene_key in {"mostly-cloudy", "overcast"}:
+        density = 0.12 + (cloud_factor * 0.10)
+        return [
+            f"linear-gradient(180deg, rgba(26,40,60,{density + 0.06:.3f}) 0%, rgba(66,86,110,{density:.3f}) 46%, rgba(103,122,144,{density * 0.76:.3f}) 100%)",
+            "linear-gradient(90deg, rgba(10,18,30,0.10) 0%, rgba(10,18,30,0) 18%, rgba(10,18,30,0) 82%, rgba(10,18,30,0.10) 100%)",
+        ]
+
+    if scene_key in {"sun-showers", "showers", "rain-clouds", "overcast-rain"}:
+        density = 0.14 + (wetness * 0.10)
+        return [
+            f"linear-gradient(180deg, rgba(12,24,42,{density + 0.08:.3f}) 0%, rgba(31,50,76,{density + 0.04:.3f}) 44%, rgba(51,72,98,{density * 0.82:.3f}) 100%)",
+            "linear-gradient(90deg, rgba(8,16,28,0.14) 0%, rgba(8,16,28,0) 16%, rgba(8,16,28,0) 84%, rgba(8,16,28,0.14) 100%)",
+        ]
+
+    if scene_key in {"sun-flurries", "partly-cloudy-snow", "snow-clouds", "overcast-snow"}:
+        density = 0.10 + (cloud_factor * 0.06)
+        return [
+            f"linear-gradient(180deg, rgba(52,74,104,{density + 0.06:.3f}) 0%, rgba(105,128,158,{density:.3f}) 38%, rgba(176,194,217,{density * 0.72:.3f}) 100%)",
+            "linear-gradient(90deg, rgba(16,28,44,0.10) 0%, rgba(16,28,44,0) 16%, rgba(16,28,44,0) 84%, rgba(16,28,44,0.10) 100%)",
+        ]
+
+    if scene_key in {"mist", "fog-veil"}:
+        density = 0.09 + (wetness * 0.06) + (cloud_factor * 0.04)
+        return [
+            f"linear-gradient(180deg, rgba(74,88,108,{density + 0.04:.3f}) 0%, rgba(128,144,162,{density:.3f}) 42%, rgba(178,191,206,{density * 0.74:.3f}) 100%)",
+        ]
+
+    if scene_key in {"storm-edge", "storm-core"}:
+        density = 0.18 + (wetness * 0.10)
+        return [
+            f"linear-gradient(180deg, rgba(6,12,22,{density + 0.12:.3f}) 0%, rgba(16,24,39,{density + 0.08:.3f}) 34%, rgba(34,50,74,{density:.3f}) 100%)",
+            "linear-gradient(90deg, rgba(4,8,16,0.16) 0%, rgba(4,8,16,0) 14%, rgba(4,8,16,0) 86%, rgba(4,8,16,0.16) 100%)",
+        ]
+
+    return []
+
+
+def _build_scene_accent_layers(scene_key, phase, cloud_factor, wetness):
+    if scene_key == "clear":
+        return [
+            f"radial-gradient(circle at 82% 18%, rgba(255, 229, 173, {0.08 if phase in {'day', 'morning'} else 0.05:.3f}) 0%, rgba(255,255,255,0) 16%)",
+            "linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 24%)",
+        ]
+
+    if scene_key == "partly-cloudy":
+        return [
+            f"radial-gradient(circle at 76% 20%, rgba(255, 232, 190, {0.06 if phase in {'day', 'morning'} else 0.04:.3f}) 0%, rgba(255,255,255,0) 18%)",
+        ]
+
+    if scene_key in {"mostly-cloudy", "overcast"}:
+        return [
+            f"linear-gradient(180deg, rgba(238,244,250,{0.018 + cloud_factor * 0.026:.3f}) 0%, rgba(255,255,255,0) 32%)",
+        ]
+
+    if scene_key in {"sun-showers", "showers", "rain-clouds", "overcast-rain"}:
+        return [
+            f"linear-gradient(180deg, rgba(206,220,236,{0.025 + wetness * 0.045:.3f}) 0%, rgba(255,255,255,0) 22%)",
+            f"radial-gradient(circle at 50% 100%, rgba(180,198,220,{0.03 + wetness * 0.04:.3f}) 0%, rgba(255,255,255,0) 34%)",
+        ]
+
+    if scene_key in {"sun-flurries", "partly-cloudy-snow", "snow-clouds", "overcast-snow"}:
+        return [
+            f"linear-gradient(180deg, rgba(242,247,255,{0.03 + cloud_factor * 0.03:.3f}) 0%, rgba(255,255,255,0) 26%)",
+            f"radial-gradient(circle at 50% 100%, rgba(225,235,248,{0.04 + wetness * 0.035:.3f}) 0%, rgba(255,255,255,0) 32%)",
+        ]
+
+    if scene_key in {"mist", "fog-veil"}:
+        return [
+            f"linear-gradient(180deg, rgba(246,249,252,{0.03 + wetness * 0.04:.3f}) 0%, rgba(255,255,255,0) 28%)",
+        ]
+
+    if scene_key in {"storm-edge", "storm-core"}:
+        return [
+            f"radial-gradient(circle at 78% 18%, rgba(224,231,255,{0.035 + wetness * 0.04:.3f}) 0%, rgba(255,255,255,0) 14%)",
+            f"linear-gradient(180deg, rgba(20,30,46,{0.05 + wetness * 0.05:.3f}) 0%, rgba(20,30,46,0) 24%)",
         ]
 
     return []
@@ -572,34 +1128,49 @@ def get_background_profile(weather):
     rain_chance = int(round(hourly_snapshot.get("rain_chance", 0) or 0))
     temperature = float(hourly_snapshot.get("temperature", current.get("temperature", 0)) or 0)
 
-    visual_condition = condition
-    if condition in {"Rainy", "Cloudy"} and temperature <= 1 and max(rain_chance, precipitation * 100) >= 18:
-        visual_condition = "Snowy"
+    scene = _resolve_visual_scene(condition, cloud_cover, precipitation, rain_chance, temperature)
+    visual_condition = scene["base_condition"]
+    scene_key = scene["scene_key"]
 
     variant_seed = [
         (weather or {}).get("resolved_city"),
         (weather or {}).get("time", {}).get("local_date"),
-        (weather or {}).get("time", {}).get("local_time"),
+        local_now.strftime("%Y-%m-%d-%H"),
         visual_condition,
+        scene_key,
     ]
     sunrise, sunset = _get_sun_window(weather or {}, local_now)
     phase = _get_sky_phase(local_now, sunrise, sunset)
     phase_style = SKY_PHASE_STYLE_MAP.get(phase, SKY_PHASE_STYLE_MAP["day"])
     weather_style = WEATHER_STYLE_MAP.get(visual_condition, WEATHER_STYLE_MAP["Cloudy"])
-    cloud_variant_index = _stable_variant_index(variant_seed + [phase, "clouds"], 4)
-    weather_variant_index = _stable_variant_index(variant_seed + [phase, "weather"], 3)
+    cloud_variant_index = _stable_variant_index(variant_seed + [phase, "clouds"], 7)
+    weather_variant_index = _stable_variant_index(variant_seed + [phase, "weather"], 6)
+    base_image_path = _resolve_scene_base_image_path(
+        scene_key,
+        phase,
+        variant_seed + ["image"],
+        phase_style["image"],
+    )
 
-    cloud_factor = _clamp(cloud_cover / 100, 0.0, 1.0)
+    cloud_factor = scene["cloud_factor"]
+    wetness = scene["wetness"]
     precipitation_factor = _clamp(precipitation / 2.0, 0.0, 1.0)
     atmospheric_weight = max(cloud_factor, precipitation_factor)
 
     precipitation_intensity = _clamp(max(precipitation / 1.2, rain_chance / 100), 0.0, 1.0)
-    cloud_layers = _build_cloud_layers(phase, cloud_cover, cloud_variant_index)
+    cloud_layers = _build_cloud_layers(phase, cloud_cover, cloud_variant_index, scene_key)
     weather_overlay_layers = _build_weather_overlay_layers(
         visual_condition,
         precipitation_intensity if visual_condition in {"Rainy", "Thunderstorm", "Snowy"} else atmospheric_weight,
         phase,
         weather_variant_index,
+        scene_key,
+    )
+    cloud_layers, weather_overlay_layers = _adapt_scene_layers_for_base_image(
+        scene_key,
+        base_image_path,
+        cloud_layers,
+        weather_overlay_layers,
     )
     weather_overlay_opacity = 0.0
     if weather_overlay_layers:
@@ -609,23 +1180,36 @@ def get_background_profile(weather):
         )
 
     star_opacity = 0.0
-    if phase in {"night", "evening"} and condition in {"Sunny", "Cloudy"}:
-        star_opacity = _clamp((1 - cloud_factor) * (0.24 if condition == "Sunny" else 0.07), 0.0, 0.24)
+    if phase in {"night", "evening"} and visual_condition in {"Sunny", "Cloudy"}:
+        star_opacity = _clamp((1 - cloud_factor) * (0.24 if visual_condition == "Sunny" else 0.07), 0.0, 0.24)
 
     effect_layers = [
         f"radial-gradient(circle at {phase_style['glow_position']}, {phase_style['glow']} 0%, rgba(255,255,255,0) 26%)",
         f"radial-gradient(circle at 50% 86%, {phase_style['horizon']} 0%, rgba(255,255,255,0) 58%)",
     ]
+    effect_layers.extend(_build_scene_accent_layers(scene_key, phase, cloud_factor, wetness))
     effect_layers.extend(_build_star_layers(star_opacity))
 
     texture_gradient = (
         f"linear-gradient(180deg, {weather_style['tint_top']} 0%, {weather_style['tint_bottom']} 100%)"
     )
+    scene_tone_layers = _build_scene_tone_layers(scene_key, phase, cloud_factor, wetness)
     day_dim_strength = 0.0
     if phase in {"day", "morning"}:
-        day_dim_strength = 0.065 if visual_condition == "Sunny" else 0.085
+        if scene_key == "clear":
+            day_dim_strength = 0.20
+        elif scene_key == "partly-cloudy":
+            day_dim_strength = 0.17
+        elif scene_key in {"sun-showers", "sun-flurries"}:
+            day_dim_strength = 0.13
+        elif scene_key in {"mostly-cloudy", "showers", "partly-cloudy-snow"}:
+            day_dim_strength = 0.11
+        else:
+            day_dim_strength = 0.095
     elif phase in {"sunrise", "sunset", "twilight"}:
-        day_dim_strength = 0.04
+        day_dim_strength = 0.055 if scene_key in {"clear", "partly-cloudy"} else 0.045
+    elif phase == "evening" and scene_key in {"clear", "partly-cloudy"}:
+        day_dim_strength = 0.03
     dim_layer = (
         f"linear-gradient(180deg, rgba(10, 16, 28, {day_dim_strength:.3f}) 0%, rgba(10, 16, 28, {day_dim_strength * 0.6:.3f}) 100%)"
         if day_dim_strength > 0
@@ -637,15 +1221,22 @@ def get_background_profile(weather):
         base_layers.append(dim_layer)
     base_layers.extend(
         [
+            *scene_tone_layers,
             f"linear-gradient(180deg, {phase_style['top']} 0%, {phase_style['bottom']} 100%)",
             texture_gradient,
         ]
     )
     return {
-        "base_image_path": phase_style["image"],
+        "base_image_path": base_image_path,
         "texture_image_path": weather_style["texture"],
         "texture_opacity": round(
-            _clamp(weather_style["texture_opacity"] + (atmospheric_weight * 0.08), 0.0, 0.26),
+            _clamp(
+                weather_style["texture_opacity"]
+                + (atmospheric_weight * 0.08)
+                + (0.03 if scene_key in {"overcast-rain", "storm-core", "fog-veil"} else 0.0),
+                0.0,
+                0.28,
+            ),
             3,
         ) if weather_style["texture"] else 0.0,
         "texture_blend_mode": weather_style["texture_blend"],
@@ -654,15 +1245,105 @@ def get_background_profile(weather):
         "atmosphere_layers": cloud_layers,
         "weather_overlay_layers": weather_overlay_layers,
         "weather_overlay_opacity": weather_overlay_opacity,
-        "weather_overlay_blend_mode": "screen" if visual_condition in {"Snowy", "Foggy"} else "soft-light",
+        "weather_overlay_blend_mode": "screen" if visual_condition in {"Snowy", "Foggy"} else "overlay" if scene_key in {"storm-core", "storm-edge"} else "soft-light",
         "has_dim_layer": bool(dim_layer),
         "phase_key": phase,
+        "scene_key": scene_key,
         "background_color": phase_style["body"],
     }
 
 
 def get_condition_icon(condition):
     return CONDITION_ICON_MAP.get(condition, "\U0001f30d")
+
+
+def get_current_condition_display(weather, profile=None):
+    if not weather:
+        return {
+            "label": "Waiting for weather data",
+            "icon": "\U0001f30d",
+            "scene_key": "",
+            "phase_key": "",
+            "base_condition": "",
+        }
+
+    profile = profile or get_background_profile(weather)
+    scene_key = profile.get("scene_key", "")
+    phase = profile.get("phase_key", "")
+    base_condition = ((weather.get("current") or {}).get("condition") or "Cloudy")
+    is_nightish = phase in {"night", "evening"}
+
+    if scene_key == "clear":
+        if phase == "sunrise":
+            label, icon = "Dawn Clear", "\U0001F305"
+        elif phase in {"sunset", "twilight"}:
+            label, icon = "Clear Sunset", "\U0001F307"
+        elif is_nightish:
+            label, icon = "Clear Night", "\U0001F319"
+        else:
+            label, icon = "Sunny", "\u2600\ufe0f"
+    elif scene_key == "partly-cloudy":
+        if phase == "sunrise":
+            label, icon = "Dawn Clouds", "\U0001F305"
+        elif phase in {"sunset", "twilight"}:
+            label, icon = "Sunset Clouds", "\U0001F307"
+        elif is_nightish:
+            label, icon = "Moonlit Clouds", "\u2601\ufe0f"
+        else:
+            label, icon = "Partly Cloudy", "\u26c5"
+    elif scene_key == "mostly-cloudy":
+        label, icon = ("Cloudy Night", "\u2601\ufe0f") if is_nightish else ("Mostly Cloudy", "\u2601\ufe0f")
+    elif scene_key == "overcast":
+        label, icon = ("Overcast Night", "\u2601\ufe0f") if is_nightish else ("Overcast", "\u2601\ufe0f")
+    elif scene_key == "sun-showers":
+        if is_nightish:
+            label, icon = "Night Showers", "\U0001F327\ufe0f"
+        elif phase == "sunrise":
+            label, icon = "Dawn Showers", "\U0001F326\ufe0f"
+        else:
+            label, icon = "Sun Showers", "\U0001F326\ufe0f"
+    elif scene_key == "showers":
+        label, icon = ("Night Showers", "\U0001F327\ufe0f") if is_nightish else ("Passing Showers", "\U0001F327\ufe0f")
+    elif scene_key == "rain-clouds":
+        label, icon = ("Rainy Night", "\U0001F327\ufe0f") if is_nightish else ("Cloudy Rain", "\U0001F327\ufe0f")
+    elif scene_key == "overcast-rain":
+        label, icon = ("Night Rain", "\U0001F327\ufe0f") if is_nightish else ("Overcast Rain", "\U0001F327\ufe0f")
+    elif scene_key == "sun-flurries":
+        if is_nightish:
+            label, icon = "Night Flurries", "\U0001F328\ufe0f"
+        elif phase == "sunrise":
+            label, icon = "Dawn Flurries", "\U0001F328\ufe0f"
+        else:
+            label, icon = "Sun Flurries", "\U0001F328\ufe0f"
+    elif scene_key == "partly-cloudy-snow":
+        label, icon = ("Night Snow", "\U0001F328\ufe0f") if is_nightish else ("Snow Showers", "\U0001F328\ufe0f")
+    elif scene_key == "snow-clouds":
+        label, icon = ("Night Snow", "\U0001F328\ufe0f") if is_nightish else ("Snow Clouds", "\U0001F328\ufe0f")
+    elif scene_key == "overcast-snow":
+        label, icon = ("Heavy Snow Night", "\U0001F328\ufe0f") if is_nightish else ("Heavy Snow", "\U0001F328\ufe0f")
+    elif scene_key == "mist":
+        if phase in {"morning", "sunrise"}:
+            label, icon = "Morning Mist", "\U0001f32b\ufe0f"
+        elif is_nightish:
+            label, icon = "Night Mist", "\U0001f32b\ufe0f"
+        else:
+            label, icon = "Mist", "\U0001f32b\ufe0f"
+    elif scene_key == "fog-veil":
+        label, icon = ("Dense Night Fog", "\U0001f32b\ufe0f") if is_nightish else ("Dense Fog", "\U0001f32b\ufe0f")
+    elif scene_key == "storm-edge":
+        label, icon = ("Night Storm Front", "\u26c8\ufe0f") if is_nightish else ("Storm Front", "\u26c8\ufe0f")
+    elif scene_key == "storm-core":
+        label, icon = ("Severe Night Storm", "\u26c8\ufe0f") if is_nightish else ("Severe Storm", "\u26c8\ufe0f")
+    else:
+        label, icon = base_condition, get_condition_icon(base_condition)
+
+    return {
+        "label": label,
+        "icon": icon,
+        "scene_key": scene_key,
+        "phase_key": phase,
+        "base_condition": base_condition,
+    }
 
 
 def get_temp_icon(value):
@@ -2985,6 +3666,8 @@ def render_topbar(weather, city_name, temp_symbol, use_fahrenheit=False):
     today = weather["forecast"][0] if weather and weather.get("forecast") else None
 
     if weather:
+        background_profile = get_background_profile(weather)
+        condition_display = get_current_condition_display(weather, background_profile)
         current_temp = round(weather["current"]["temperature"], 1)
         high_temp = today["max"] if today else "--"
         low_temp = today["min"] if today else "--"
@@ -3003,8 +3686,8 @@ def render_topbar(weather, city_name, temp_symbol, use_fahrenheit=False):
             <div class="topbar glass">
                 <div class="summary-city">{city_name}</div>
                 <div class="summary-time">Local time {time_text}</div>
-                <div class="summary-temp">{get_condition_icon(weather['current']['condition'])} {current_temp}{temp_symbol}</div>
-                <div class="summary-condition">{weather['current']['condition']}</div>
+                <div class="summary-temp">{condition_display['icon']} {current_temp}{temp_symbol}</div>
+                <div class="summary-condition">{condition_display['label']}</div>
                 <div class="summary-range">H: {high_temp}{temp_symbol} | L: {low_temp}{temp_symbol}</div>
             </div>
             """,
@@ -3381,7 +4064,7 @@ def render_weather_intelligence_panel(payload):
           <div class="intel-hero">
             <div class="intel-hero-copy">
               <div class="intel-kicker">Version 2 Intelligence</div>
-              <div class="intel-title">{escape(get_condition_icon(payload.get("condition")))} Decision-ready weather for {escape(str(payload.get("city", "Selected location")))}</div>
+              <div class="intel-title">{escape(str(payload.get("condition_icon") or get_condition_icon(payload.get("condition"))))} Decision-ready weather for {escape(str(payload.get("city", "Selected location")))}</div>
               <div class="intel-subtitle">Short alerts, practical guidance, and fast recommendations built from the current weather snapshot.</div>
             </div>
             <div class="intel-hero-stats">

@@ -37,6 +37,7 @@ from ui.components import (
     apply_theme,
     format_precipitation,
     get_background_profile,
+    get_current_condition_display,
     render_persistent_nav_bridge,
     get_condition_icon,
     get_feels_like_icon,
@@ -1706,6 +1707,7 @@ def build_clothing_recommendations(weather_to_show, temp_symbol, speed_symbol, u
 def build_weather_intelligence_payload(weather_to_show, city_to_show, temp_symbol, speed_symbol, use_fahrenheit):
     current = weather_to_show["current"]
     today = weather_to_show["forecast"][0] if weather_to_show.get("forecast") else {}
+    condition_display = get_current_condition_display(weather_to_show)
     time_context = build_local_time_context(weather_to_show)
     personalization = get_personalization_profile()
     routine_scheduler = build_daily_routine_scheduler(
@@ -1727,7 +1729,9 @@ def build_weather_intelligence_payload(weather_to_show, city_to_show, temp_symbo
 
     return {
         "city": city_to_show or weather_to_show.get("resolved_city") or "Selected location",
-        "condition": current["condition"],
+        "condition": condition_display["label"],
+        "condition_icon": condition_display["icon"],
+        "raw_condition": current["condition"],
         "time_context": {
             "phase_label": time_context["phase_label"],
             "phase_reference": time_context["phase_reference"],
