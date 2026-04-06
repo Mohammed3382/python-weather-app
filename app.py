@@ -33,6 +33,9 @@ from services.user_preferences import (
     load_user_preferences,
     save_user_preferences,
 )
+from services.place_recommendations import (
+    get_local_place_recommendations,
+)
 from ui.components import (
     apply_theme,
     format_precipitation,
@@ -1434,6 +1437,35 @@ def build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, u
     return cards
 
 
+def get_local_highlight_mode(weather_to_show, time_context=None):
+    snapshot = resolve_context_snapshot(weather_to_show, time_context)
+    condition = str(snapshot.get("condition") or "").strip()
+    temperature = float(snapshot.get("temperature", 0) or 0)
+    rain_chance = int(round(snapshot.get("rain_chance", 0) or 0))
+    rain_total = float(snapshot.get("rain_total", 0) or 0)
+
+    if condition == "Thunderstorm" or rain_chance >= 65 or rain_total >= 1.0:
+        return "wet"
+    if condition in {"Rainy", "Foggy"} or rain_chance >= 40 or rain_total >= 0.2:
+        return "wet"
+    if condition == "Snowy" or temperature <= 6:
+        return "cold"
+    if temperature >= 34:
+        return "hot"
+    if condition == "Sunny" and rain_chance <= 20 and 12 <= temperature <= 33:
+        return "clear"
+    return "mixed"
+
+
+def build_local_highlight_recommendations(weather_to_show, time_context=None):
+    location = (weather_to_show or {}).get("location") or {}
+    latitude = location.get("latitude")
+    longitude = location.get("longitude")
+    city_label = weather_to_show.get("resolved_city") or "Selected location"
+    mode_key = get_local_highlight_mode(weather_to_show, time_context)
+    return get_local_place_recommendations(latitude, longitude, city_label, mode_key=mode_key, max_items=4)
+
+
 def build_clothing_quick_read(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit, personalization=None):
     personalization = get_personalization_profile(personalization)
     snapshot = resolve_context_snapshot(weather_to_show, time_context)
@@ -1755,6 +1787,7 @@ def build_weather_intelligence_payload(weather_to_show, city_to_show, temp_symbo
         "insights": build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context),
         "routine_scheduler": routine_scheduler,
         "activities": build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context, routine_scheduler, personalization),
+        "local_highlights": build_local_highlight_recommendations(weather_to_show, time_context),
         "clothing": clothing_cards,
         "clothing_quick_read": build_clothing_quick_read(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit, personalization),
         "clothing_timeline": build_time_slot_clothing_plan(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit),
@@ -4631,6 +4664,7 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
 
 def render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit):
     time_context = intelligence_payload.get("time_context") or {}
+    local_highlights = intelligence_payload.get("local_highlights") or []
     render_insight_section_header(
         "Activity Recommendations",
         f"This section now leads with a short activity scan for {time_context.get('phase_reference', 'right now')}, then keeps the detailed guidance and trip tools below.",
@@ -4651,6 +4685,19 @@ def render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_f
             "Read Next",
         )
     render_guidance_card_grid(intelligence_payload.get("activities", []), grid_variant="insight-readable")
+    if local_highlights:
+        render_soft_section_divider()
+        render_insight_section_header(
+            "Local Highlights",
+            "Live nearby place picks, weighted toward the current weather, with a direct handoff into Google Maps.",
+            "Go Nearby",
+        )
+        render_recommendation_card(
+            "Where to go nearby",
+            "Weather-Aware Places",
+            local_highlights,
+            style_variant="insight-readable",
+        )
     render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit)
 
 
@@ -5914,6 +5961,8 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             background: transparent;
             border: 0;
             box-shadow: none;
+            -webkit-mask-image: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 1.05rem, rgba(0,0,0,1) calc(100% - 1.05rem), rgba(0,0,0,0) 100%);
+            mask-image: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 1.05rem, rgba(0,0,0,1) calc(100% - 1.05rem), rgba(0,0,0,0) 100%);
           }}
           .skyline-hourly-track {{
             display: flex;
@@ -6034,21 +6083,26 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             position: absolute;
             top: 0.08rem;
             bottom: 0.12rem;
-            width: 1.92rem;
+            width: 1.48rem;
             z-index: 2;
             pointer-events: none;
-            opacity: 1;
+            opacity: 0.74;
             transition: opacity 0.2s ease;
+            backdrop-filter: blur(10px);
           }}
           .skyline-hourly-fade--left {{
             left: 1.68rem;
             border-radius: 18px 0 0 18px;
-            background: linear-gradient(90deg, rgba(79, 102, 129, 0.9) 0%, rgba(79, 102, 129, 0.72) 46%, rgba(79, 102, 129, 0) 100%);
+            background:
+              linear-gradient(90deg, rgba(12, 22, 37, 0.18) 0%, rgba(12, 22, 37, 0.08) 46%, rgba(12, 22, 37, 0) 100%),
+              linear-gradient(90deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 40%, rgba(255,255,255,0) 100%);
           }}
           .skyline-hourly-fade--right {{
             right: 1.68rem;
             border-radius: 0 18px 18px 0;
-            background: linear-gradient(270deg, rgba(79, 102, 129, 0.9) 0%, rgba(79, 102, 129, 0.72) 46%, rgba(79, 102, 129, 0) 100%);
+            background:
+              linear-gradient(270deg, rgba(12, 22, 37, 0.18) 0%, rgba(12, 22, 37, 0.08) 46%, rgba(12, 22, 37, 0) 100%),
+              linear-gradient(270deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 40%, rgba(255,255,255,0) 100%);
           }}
           @media (max-width: 900px) {{
             .skyline-hourly-shell {{
@@ -6062,7 +6116,7 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
               padding-right: 1.72rem;
             }}
             .skyline-hourly-fade {{
-              width: 1.7rem;
+              width: 1.34rem;
             }}
             .skyline-hourly-item-shell {{
               flex-basis: 4rem;
@@ -6121,8 +6175,8 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             const atEnd = track.scrollLeft >= maxScrollLeft - 4;
             prevButton.disabled = atStart;
             nextButton.disabled = atEnd;
-            leftFade.style.opacity = atStart ? "0" : "1";
-            rightFade.style.opacity = atEnd ? "0" : "1";
+            leftFade.style.opacity = atStart ? "0" : "0.74";
+            rightFade.style.opacity = atEnd ? "0" : "0.74";
             const hasOverflow = maxScrollLeft > 10;
             prevButton.style.display = hasOverflow ? "inline-flex" : "none";
             nextButton.style.display = hasOverflow ? "inline-flex" : "none";

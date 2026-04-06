@@ -2743,6 +2743,13 @@ def apply_theme(background_source):
             background: rgba(255,255,255,0.06);
             border: 1px solid rgba(255,255,255,0.08);
         }}
+        .intel-recommend-item-top {{
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.9rem;
+            flex-wrap: wrap;
+        }}
         .intel-recommend-card--insight-readable .intel-recommend-item {{
             padding: 0.9rem 1rem 0.92rem;
             background: rgba(255,255,255,0.05);
@@ -2753,11 +2760,48 @@ def apply_theme(background_source):
             font-size: 0.95rem;
             font-weight: 700;
         }}
+        .intel-recommend-item-meta {{
+            margin-top: 0.18rem;
+            font-size: 0.68rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            opacity: 0.62;
+        }}
         .intel-recommend-item-body {{
             margin-top: 0.35rem;
             font-size: 0.9rem;
             line-height: 1.62;
             opacity: 0.9;
+        }}
+        .intel-recommend-action {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 2rem;
+            padding: 0.48rem 0.86rem;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.14);
+            background: rgba(255,255,255,0.06);
+            color: rgba(243, 249, 255, 0.92) !important;
+            text-decoration: none;
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            box-shadow: none;
+            transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+            white-space: nowrap;
+        }}
+        .intel-recommend-action:visited,
+        .intel-recommend-action:hover,
+        .intel-recommend-action:active,
+        .intel-recommend-action:focus {{
+            color: rgba(248, 252, 255, 0.96) !important;
+            text-decoration: none !important;
+        }}
+        .intel-recommend-action:hover {{
+            transform: translateY(-1px);
+            background: rgba(255,255,255,0.1);
+            border-color: rgba(255,255,255,0.2);
         }}
         .intel-recommend-card--insight-readable .intel-recommend-item-title {{
             font-size: 1rem;
@@ -4755,27 +4799,51 @@ def render_weather_score_row(scores, card_variant="standard"):
 
 
 def render_recommendation_card(title, kicker, items, style_variant="standard"):
-    items_html = "".join(
-        dedent(
-            f"""
-            <div class="intel-recommend-item">
-                <div class="intel-recommend-item-title">{escape(str(item["title"]))}</div>
-                <div class="intel-recommend-item-body">{escape(str(item["body"]))}</div>
-            </div>
-            """
-        ).strip()
-        for item in items
-    )
+    item_blocks = []
+    for item in items:
+        meta = str(item.get("meta") or "").strip()
+        action_url = str(item.get("action_url") or "").strip()
+        action_label = str(item.get("action_label") or "Open link").strip()
+        item_title = escape(str(item.get("title") or "Recommendation"))
+        item_body = escape(str(item.get("body") or ""))
+
+        meta_html = f'<div class="intel-recommend-item-meta">{escape(meta)}</div>' if meta else ""
+        action_html = (
+            f'<a class="intel-recommend-action" href="{escape(action_url, quote=True)}" target="_blank" rel="noopener noreferrer">{escape(action_label)}</a>'
+            if action_url
+            else ""
+        )
+
+        item_blocks.append(
+            "".join(
+                [
+                    '<div class="intel-recommend-item">',
+                    '<div class="intel-recommend-item-top">',
+                    "<div>",
+                    f'<div class="intel-recommend-item-title">{item_title}</div>',
+                    meta_html,
+                    "</div>",
+                    action_html,
+                    "</div>",
+                    f'<div class="intel-recommend-item-body">{item_body}</div>',
+                    "</div>",
+                ]
+            )
+        )
+
+    items_html = "".join(item_blocks)
     st.markdown(
-        f"""
-        <div class="intel-recommend-card intel-recommend-card--{escape(str(style_variant))}">
-            <div class="intel-recommend-header">
-                <div class="intel-recommend-title">{escape(title)}</div>
-                <div class="intel-recommend-kicker">{escape(kicker)}</div>
-            </div>
-            <div class="intel-recommend-list">{items_html}</div>
-        </div>
-        """,
+        "".join(
+            [
+                f'<div class="intel-recommend-card intel-recommend-card--{escape(str(style_variant))}">',
+                '<div class="intel-recommend-header">',
+                f'<div class="intel-recommend-title">{escape(title)}</div>',
+                f'<div class="intel-recommend-kicker">{escape(kicker)}</div>',
+                "</div>",
+                f'<div class="intel-recommend-list">{items_html}</div>',
+                "</div>",
+            ]
+        ),
         unsafe_allow_html=True,
     )
 
