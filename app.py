@@ -90,6 +90,7 @@ EXPORT_FUTURE_LOOKAHEAD_LIMIT_DAYS = 16
 EXPORT_MAX_SELECTED_DAYS = 20
 MAP_LAYER_OPTIONS = ["Clouds", "Temperature", "Rain", "Wind", "Pressure", "Radar", "Satellite"]
 CONTENT_SECTIONS = ["Overview", "Insights", "What to Wear", "Activities", "Map", "Compare"]
+TRIP_PLANNER_MAX_EXTRA_CITIES = 3
 TIME_SLOT_CONFIG = [
     {
         "key": "morning",
@@ -1787,7 +1788,6 @@ def build_weather_intelligence_payload(weather_to_show, city_to_show, temp_symbo
         "insights": build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context),
         "routine_scheduler": routine_scheduler,
         "activities": build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context, routine_scheduler, personalization),
-        "local_highlights": build_local_highlight_recommendations(weather_to_show, time_context),
         "clothing": clothing_cards,
         "clothing_quick_read": build_clothing_quick_read(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit, personalization),
         "clothing_timeline": build_time_slot_clothing_plan(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit),
@@ -1857,6 +1857,41 @@ def get_search_component_recent_entries():
     if current_entry:
         return normalize_recent_searches([current_entry, *recent_entries])
     return normalize_recent_searches(recent_entries)
+
+
+def get_trip_planner_extra_city_keys(slot_index):
+    slot_suffix = str(int(slot_index))
+    return {
+        "query": f"trip_planner_extra_city_{slot_suffix}_query",
+        "selection": f"trip_planner_extra_city_{slot_suffix}_selection",
+        "event": f"trip_planner_extra_city_{slot_suffix}_search_event_id",
+        "component": f"trip_planner_extra_city_{slot_suffix}_search_component",
+    }
+
+
+def get_trip_planner_slot_keys(slot_id):
+    if slot_id == "origin":
+        return {
+            "query": "trip_planner_origin_query",
+            "selection": "trip_planner_origin_selection",
+            "event": "trip_planner_origin_search_event_id",
+        }
+    if slot_id == "destination":
+        return {
+            "query": "trip_planner_destination_query",
+            "selection": "trip_planner_destination_selection",
+            "event": "trip_planner_destination_search_event_id",
+        }
+    if str(slot_id).startswith("extra_"):
+        return get_trip_planner_extra_city_keys(int(str(slot_id).split("_", maxsplit=1)[1]))
+    return {}
+
+
+def clear_trip_planner_extra_city_slot(slot_index):
+    keys = get_trip_planner_extra_city_keys(slot_index)
+    st.session_state[keys["query"]] = ""
+    st.session_state[keys["selection"]] = None
+    st.session_state[keys["event"]] = ""
 
 
 def remember_recent_search(weather):
@@ -2551,6 +2586,431 @@ def build_trip_planner_analysis(city_name, forecast_rows, temp_symbol, speed_sym
     }
 
 
+def get_trip_planner_lookup_value(query, selection):
+    if selection and selection.get("latitude") is not None and selection.get("longitude") is not None:
+        return selection
+    return query
+
+
+def build_trip_planner_city_section(weather, forecast_rows, analysis, role_key, role_label, temp_symbol, speed_symbol, use_fahrenheit):
+    city_name = weather.get("resolved_city") or analysis.get("city") or "Selected city"
+    short_name = city_name.split(",")[0].strip() or city_name
+    current = weather.get("current") or {}
+    location = weather.get("location") or {}
+
+    overview_notes = {note["label"]: note for note in analysis.get("overview_notes", [])}
+    avg_temp_note = overview_notes.get("Average Temp", {"title": "--", "body": ""})
+    range_note = overview_notes.get("Min / Max", {"title": "--", "body": ""})
+    rain_note = overview_notes.get("Rain Probability", {"title": "--", "body": ""})
+    wind_note = overview_notes.get("Wind Conditions", {"title": "--", "body": ""})
+    uv_note = overview_notes.get("UV Index", {"title": "--", "body": ""})
+
+    avg_temp_value = round(sum((day["min"] + day["max"]) / 2 for day in forecast_rows) / max(1, len(forecast_rows)), 1)
+    avg_rain_value = round(sum(day.get("rain_chance", 0) for day in forecast_rows) / max(1, len(forecast_rows)), 1)
+    avg_wind_value = round(sum(float(day.get("wind_speed", 0) or 0) for day in forecast_rows) / max(1, len(forecast_rows)), 1)
+
+    current_summary = (
+        f'{format_temperature_text(current.get("temperature", 0), temp_symbol, use_fahrenheit)} | '
+        f'{current.get("condition", "Current conditions")}'
+    )
+    current_detail = (
+        f'Feels {format_temperature_text(current.get("feels_like", 0), temp_symbol, use_fahrenheit)} | '
+        f'Wind {format_wind_text(current.get("wind", 0), speed_symbol)}'
+    )
+
+    note_cards = [
+        {
+            "label": "Current Snapshot",
+            "value": current_summary,
+            "body": current_detail,
+        },
+        {
+            "label": "Trip Range",
+            "value": range_note["title"],
+            "body": avg_temp_note["title"],
+        },
+        {
+            "label": "Rain & Wind",
+            "value": rain_note["title"],
+            "body": wind_note["title"],
+        },
+        {
+            "label": "Best Day",
+            "value": analysis.get("best_day_label") or "--",
+            "body": f'Use extra care on {analysis.get("caution_day_label") or "--"}.',
+        },
+    ]
+
+    daily_rows = []
+    visual_days = []
+    for day in forecast_rows:
+        display_date = datetime.strptime(day["date"], "%Y-%m-%d").strftime("%b %d, %Y")
+        display_high = format_temperature_text(day["max"], temp_symbol, use_fahrenheit)
+        display_low = format_temperature_text(day["min"], temp_symbol, use_fahrenheit)
+        daily_rows.append(
+            {
+                "Date": display_date,
+                "Day": day["day"],
+                "Condition": day["condition"],
+                "Low": display_low,
+                "High": display_high,
+                "Rain": f'{day.get("rain_chance", 0)}%',
+                "Wind": format_wind_text(day.get("wind_speed", 0), speed_symbol),
+                "UV": str(day.get("uv_index", 0)) if (day.get("uv_index", 0) or 0) > 0 else "--",
+            }
+        )
+        visual_days.append(
+            {
+                "label": datetime.strptime(day["date"], "%Y-%m-%d").strftime("%b %d"),
+                "day": day["day"],
+                "condition": day["condition"],
+                "high_value": format_temperature_value(day["max"], use_fahrenheit),
+                "low_value": format_temperature_value(day["min"], use_fahrenheit),
+                "high_text": display_high,
+                "low_text": display_low,
+            }
+        )
+
+    return {
+        "role_key": role_key,
+        "role_label": role_label,
+        "city_name": city_name,
+        "short_name": short_name,
+        "location": location,
+        "overview_body": analysis.get("overview_body", ""),
+        "current_summary": current_summary,
+        "current_detail": current_detail,
+        "avg_temp_value": avg_temp_value,
+        "avg_rain_value": avg_rain_value,
+        "avg_wind_value": avg_wind_value,
+        "best_day_label": analysis.get("best_day_label") or "--",
+        "caution_day_label": analysis.get("caution_day_label") or "--",
+        "comparison_values": {
+            "Current": current_summary,
+            "Average Temp": avg_temp_note["title"],
+            "Trip Range": range_note["title"],
+            "Rain Avg": rain_note["title"],
+            "Wind Avg": wind_note["title"],
+            "Best Day": analysis.get("best_day_label") or "--",
+            "Caution Day": analysis.get("caution_day_label") or "--",
+            "UV Peak": uv_note["title"],
+        },
+        "note_cards": note_cards,
+        "packing_items": analysis.get("packing_items", [])[:4],
+        "daily_rows": daily_rows,
+        "visual_days": visual_days,
+    }
+
+
+def build_trip_planner_overview_body(city_sections, date_range_label, temp_symbol, use_fahrenheit):
+    if not city_sections:
+        return "Trip comparison data is unavailable for the selected cities."
+
+    if len(city_sections) == 1:
+        return city_sections[0].get("overview_body") or f'{city_sections[0]["city_name"]} is ready for trip review across {date_range_label}.'
+
+    warmest_city = max(city_sections, key=lambda item: item.get("avg_temp_value", 0))
+    coolest_city = min(city_sections, key=lambda item: item.get("avg_temp_value", 0))
+    driest_city = min(city_sections, key=lambda item: item.get("avg_rain_value", 0))
+    calmest_city = min(city_sections, key=lambda item: item.get("avg_wind_value", 0))
+
+    return (
+        f"This planner compares {len(city_sections)} cities for {date_range_label}. "
+        f'{warmest_city["short_name"]} runs warmest near {format_temperature_text(warmest_city["avg_temp_value"], temp_symbol, use_fahrenheit)}, '
+        f'{coolest_city["short_name"]} is cooler around {format_temperature_text(coolest_city["avg_temp_value"], temp_symbol, use_fahrenheit)}, '
+        f'{driest_city["short_name"]} looks driest with average rain near {round(driest_city["avg_rain_value"])}%, '
+        f'and {calmest_city["short_name"]} is the calmer-wind option.'
+    )
+
+
+def build_trip_plan_map_points_v2(city_sections):
+    valid_sections = []
+    for section in city_sections:
+        location = section.get("location") or {}
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        if latitude is None or longitude is None:
+            continue
+        valid_sections.append((section, float(latitude), float(longitude)))
+
+    if not valid_sections:
+        return [], []
+
+    latitudes = [latitude for _, latitude, _ in valid_sections]
+    longitudes = [longitude for _, _, longitude in valid_sections]
+    lat_min = min(latitudes)
+    lat_max = max(latitudes)
+    lon_min = min(longitudes)
+    lon_max = max(longitudes)
+
+    lat_padding = max((lat_max - lat_min) * 0.22, 1.6)
+    lon_padding = max((lon_max - lon_min) * 0.22, 1.6)
+    lat_min -= lat_padding
+    lat_max += lat_padding
+    lon_min -= lon_padding
+    lon_max += lon_padding
+    lat_span = max(lat_max - lat_min, 1.0)
+    lon_span = max(lon_max - lon_min, 1.0)
+
+    points = []
+    seen_positions = []
+    for index, (section, latitude, longitude) in enumerate(valid_sections, start=1):
+        x_value = (longitude - lon_min) / lon_span
+        y_value = 1 - ((latitude - lat_min) / lat_span)
+        x_value = clamp_trip_map_point(x_value, minimum=0.1, maximum=0.9)
+        y_value = clamp_trip_map_point(y_value, minimum=0.14, maximum=0.86)
+
+        for seen_index, (seen_x, seen_y) in enumerate(seen_positions):
+            if abs(x_value - seen_x) < 0.035 and abs(y_value - seen_y) < 0.035:
+                offset_x = 0.028 if seen_index % 2 == 0 else -0.028
+                offset_y = -0.026 if seen_index % 3 == 0 else 0.026
+                x_value = clamp_trip_map_point(x_value + offset_x, minimum=0.1, maximum=0.9)
+                y_value = clamp_trip_map_point(y_value + offset_y, minimum=0.14, maximum=0.86)
+
+        seen_positions.append((x_value, y_value))
+        point_kind = section["role_key"] if section["role_key"] in {"origin", "destination"} else "comparison"
+        points.append(
+            {
+                "index": index,
+                "kind": point_kind,
+                "label": section["short_name"],
+                "subtitle": section["role_label"],
+                "city_name": section["city_name"],
+                "summary": section["current_summary"],
+                "x": x_value,
+                "y": y_value,
+                "latitude": round(latitude, 2),
+                "longitude": round(longitude, 2),
+            }
+        )
+
+    route_segments = []
+    for start_point, end_point in zip(points, points[1:]):
+        route_segments.append(
+            {
+                "start_x": start_point["x"],
+                "start_y": start_point["y"],
+                "end_x": end_point["x"],
+                "end_y": end_point["y"],
+            }
+        )
+
+    return points, route_segments
+
+
+def build_trip_plan_pdf_bundle_v2(city_payloads, temp_symbol, speed_symbol, use_fahrenheit):
+    city_sections = [
+        build_trip_planner_city_section(
+            payload["weather"],
+            payload["forecast_rows"],
+            payload["analysis"],
+            payload["role_key"],
+            payload["role_label"],
+            temp_symbol,
+            speed_symbol,
+            use_fahrenheit,
+        )
+        for payload in city_payloads
+    ]
+    date_range_label = city_payloads[0]["analysis"]["date_range_label"] if city_payloads else ""
+
+    planner_highlights = []
+    if city_sections:
+        warmest_city = max(city_sections, key=lambda item: item.get("avg_temp_value", 0))
+        driest_city = min(city_sections, key=lambda item: item.get("avg_rain_value", 0))
+        calmest_city = min(city_sections, key=lambda item: item.get("avg_wind_value", 0))
+        planner_highlights = [
+            {
+                "label": "Warmest Window",
+                "value": warmest_city["short_name"],
+                "body": f'{format_temperature_text(warmest_city["avg_temp_value"], temp_symbol, use_fahrenheit)} average through the selected range.',
+            },
+            {
+                "label": "Driest Option",
+                "value": driest_city["short_name"],
+                "body": f'Average rain chance sits near {round(driest_city["avg_rain_value"])}% across the selected days.',
+            },
+            {
+                "label": "Calmer Wind",
+                "value": calmest_city["short_name"],
+                "body": f'{format_wind_text(calmest_city["avg_wind_value"], speed_symbol)} average wind across the range.',
+            },
+        ]
+
+    comparison_rows = [
+        {"label": "Current", "values": [section["comparison_values"]["Current"] for section in city_sections]},
+        {"label": "Average Temp", "values": [section["comparison_values"]["Average Temp"] for section in city_sections]},
+        {"label": "Trip Range", "values": [section["comparison_values"]["Trip Range"] for section in city_sections]},
+        {"label": "Rain Avg", "values": [section["comparison_values"]["Rain Avg"] for section in city_sections]},
+        {"label": "Wind Avg", "values": [section["comparison_values"]["Wind Avg"] for section in city_sections]},
+        {"label": "Best Day", "values": [section["comparison_values"]["Best Day"] for section in city_sections]},
+        {"label": "Caution Day", "values": [section["comparison_values"]["Caution Day"] for section in city_sections]},
+    ]
+
+    map_points, route_segments = build_trip_plan_map_points_v2(city_sections)
+    route_label = " -> ".join(section["short_name"] for section in city_sections[:5]) if len(city_sections) > 1 else (
+        f'Trip plan to {city_sections[0]["short_name"]}' if city_sections else "Trip Planner"
+    )
+
+    return {
+        "route_label": route_label,
+        "date_range_label": date_range_label,
+        "generated_at": datetime.now().strftime("%b %d, %Y %I:%M %p"),
+        "temperature_unit": temp_symbol.strip(),
+        "wind_unit": speed_symbol,
+        "city_count": len(city_sections),
+        "overview_body": build_trip_planner_overview_body(city_sections, date_range_label, temp_symbol, use_fahrenheit),
+        "planner_highlights": planner_highlights,
+        "cities": city_sections,
+        "comparison_rows": comparison_rows,
+        "map_points": map_points,
+        "route_segments": route_segments,
+    }
+
+
+def _build_trip_plan_pdf_artifact_v2(
+    origin_query,
+    origin_selection,
+    destination_query,
+    destination_selection,
+    comparison_slots,
+    start_date,
+    end_date,
+    temp_symbol,
+    speed_symbol,
+    use_fahrenheit,
+):
+    if not destination_query:
+        raise ValueError("Choose a destination before creating the trip plan PDF.")
+    if start_date > end_date:
+        raise ValueError("Start date must be on or before the end date.")
+
+    slot_inputs = []
+    if str(origin_query or "").strip():
+        slot_inputs.append(
+            {
+                "slot_id": "origin",
+                "role_key": "origin",
+                "role_label": "Starting City",
+                "query": str(origin_query).strip(),
+                "selection": origin_selection,
+            }
+        )
+
+    slot_inputs.append(
+        {
+            "slot_id": "destination",
+            "role_key": "destination",
+            "role_label": "Primary Destination",
+            "query": str(destination_query).strip(),
+            "selection": destination_selection,
+        }
+    )
+
+    for index, slot in enumerate(comparison_slots or [], start=1):
+        comparison_query = str(slot.get("query") or "").strip()
+        if not comparison_query:
+            continue
+        slot_inputs.append(
+            {
+                "slot_id": f"extra_{index}",
+                "role_key": "comparison",
+                "role_label": f"Comparison City {index}",
+                "query": comparison_query,
+                "selection": slot.get("selection"),
+            }
+        )
+
+    weather_cache = {}
+    range_cache = {}
+    slot_results = []
+    city_payloads = []
+    seen_resolved_cities = set()
+
+    for slot in slot_inputs:
+        lookup = get_trip_planner_lookup_value(slot["query"], slot.get("selection"))
+        if isinstance(lookup, dict):
+            weather_cache_key = (
+                "coords",
+                round(float(lookup.get("latitude") or 0), 4),
+                round(float(lookup.get("longitude") or 0), 4),
+                str(lookup.get("query") or lookup.get("label") or slot["query"]).strip().lower(),
+            )
+        else:
+            weather_cache_key = ("query", str(lookup).strip().lower())
+
+        if weather_cache_key not in weather_cache:
+            weather_cache[weather_cache_key] = get_weather(lookup)
+        weather = weather_cache[weather_cache_key]
+        slot_results.append({"slot_id": slot["slot_id"], "weather": weather})
+
+        resolved_city_key = str(weather.get("resolved_city") or "").strip().upper()
+        if not resolved_city_key or resolved_city_key in seen_resolved_cities:
+            continue
+
+        seen_resolved_cities.add(resolved_city_key)
+        location = weather.get("location") or {}
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        if latitude is None or longitude is None:
+            raise WeatherError(f'Location data is missing for {weather.get("resolved_city") or slot["query"]}.')
+
+        range_cache_key = (
+            round(float(latitude), 4),
+            round(float(longitude), 4),
+            start_date.isoformat(),
+            end_date.isoformat(),
+            location.get("timezone") or "auto",
+        )
+        if range_cache_key not in range_cache:
+            range_cache[range_cache_key] = get_daily_weather_range(
+                latitude,
+                longitude,
+                start_date,
+                end_date,
+                location.get("timezone") or "auto",
+            )
+
+        forecast_rows = range_cache[range_cache_key]
+        analysis = build_trip_planner_analysis(
+            weather.get("resolved_city") or slot["query"],
+            forecast_rows,
+            temp_symbol,
+            speed_symbol,
+            use_fahrenheit,
+        )
+        city_payloads.append(
+            {
+                "slot_id": slot["slot_id"],
+                "role_key": slot["role_key"],
+                "role_label": slot["role_label"],
+                "weather": weather,
+                "forecast_rows": forecast_rows,
+                "analysis": analysis,
+            }
+        )
+
+    if not city_payloads:
+        raise WeatherError("Unable to prepare trip data for the selected cities.")
+
+    bundle = build_trip_plan_pdf_bundle_v2(city_payloads, temp_symbol, speed_symbol, use_fahrenheit)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    if len(bundle["cities"]) == 1:
+        route_slug = sanitize_export_filename(f'trip_to_{bundle["cities"][0]["short_name"]}')
+    else:
+        route_slug = sanitize_export_filename(
+            f'{bundle["cities"][0]["short_name"]}_to_{bundle["cities"][-1]["short_name"]}_{len(bundle["cities"])}_cities'
+        )
+    filename = f"skyline_trip_plan_{route_slug}_{start_date.isoformat()}_to_{end_date.isoformat()}_{timestamp}.pdf"
+
+    return {
+        "bundle": bundle,
+        "bytes": build_trip_plan_pdf(bundle),
+        "filename": filename,
+        "slot_results": slot_results,
+    }
+
+
 def clamp_trip_map_point(value, minimum=0.12, maximum=0.88):
     return max(minimum, min(value, maximum))
 
@@ -2726,12 +3186,26 @@ def build_trip_plan_pdf_artifact(
     origin_selection,
     destination_query,
     destination_selection,
+    comparison_slots,
     start_date,
     end_date,
     temp_symbol,
     speed_symbol,
     use_fahrenheit,
 ):
+    return _build_trip_plan_pdf_artifact_v2(
+        origin_query,
+        origin_selection,
+        destination_query,
+        destination_selection,
+        comparison_slots,
+        start_date,
+        end_date,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+    )
+
     if not destination_query:
         raise ValueError("Choose a destination before creating the trip plan PDF.")
     if start_date > end_date:
@@ -3488,6 +3962,7 @@ def initialize_session_state():
         "trip_planner_destination_query": "",
         "trip_planner_destination_selection": None,
         "trip_planner_destination_search_event_id": "",
+        "trip_planner_extra_city_count": 0,
         "trip_planner_start_date": get_default_trip_planner_dates()[0],
         "trip_planner_end_date": get_default_trip_planner_dates()[1],
         "trip_planner_error": "",
@@ -3507,6 +3982,15 @@ def initialize_session_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+    for slot_index in range(1, TRIP_PLANNER_MAX_EXTRA_CITIES + 1):
+        slot_keys = get_trip_planner_extra_city_keys(slot_index)
+        if slot_keys["query"] not in st.session_state:
+            st.session_state[slot_keys["query"]] = ""
+        if slot_keys["selection"] not in st.session_state:
+            st.session_state[slot_keys["selection"]] = None
+        if slot_keys["event"] not in st.session_state:
+            st.session_state[slot_keys["event"]] = ""
 
     if not st.session_state.get("preferences_loaded"):
         saved_preferences = load_user_preferences()
@@ -4411,13 +4895,16 @@ def build_activities_quick_read_items(intelligence_payload):
     walking_item = activity_map.get("walking")
     running_item = activity_map.get("running")
     travel_item = activity_map.get("travel")
+    indoor_item = activity_map.get("indoor_backup")
     if walking_item:
         quick_items.append({"title": "🚶 Walking", "body": tighten_preview_copy(walking_item["body"], max_length=108)})
     if running_item:
         quick_items.append({"title": "🏃 Outdoor Effort", "body": tighten_preview_copy(running_item["body"], max_length=108)})
     if travel_item:
         quick_items.append({"title": "🧭 Travel", "body": tighten_preview_copy(travel_item["body"], max_length=108)})
-    return quick_items[:3]
+    if indoor_item:
+        quick_items.append({"title": "🏠 Indoor Backup", "body": tighten_preview_copy(indoor_item["body"], max_length=108)})
+    return quick_items[:4]
 
 
 def render_overview_tab(weather_to_show, intelligence_payload, city_to_show, temp_symbol, use_fahrenheit):
@@ -4532,7 +5019,7 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
     render_soft_section_divider()
     render_insight_section_header(
         "Packing / Trip Planner",
-        "Set an optional starting point, choose a destination, and export the full trip plan as a clean PDF instead of opening a large on-page result.",
+        "Set an optional starting point, choose a destination, and add up to three more comparison cities so the PDF can compare as many as five cities side by side.",
         "Trip Export",
     )
 
@@ -4570,6 +5057,51 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
             "trip_planner_destination_search_event_id",
         )
 
+    st.markdown("<div class='trip-planner-controls-anchor'></div>", unsafe_allow_html=True)
+    button_columns = st.columns([1.15, 1.15, 4.2], gap="small")
+    with button_columns[0]:
+        if st.button(
+            "Add City",
+            key="trip_planner_add_city_button",
+            use_container_width=True,
+            disabled=st.session_state.get("trip_planner_extra_city_count", 0) >= TRIP_PLANNER_MAX_EXTRA_CITIES,
+        ):
+            st.session_state["trip_planner_extra_city_count"] = min(
+                TRIP_PLANNER_MAX_EXTRA_CITIES,
+                st.session_state.get("trip_planner_extra_city_count", 0) + 1,
+            )
+    with button_columns[1]:
+        if st.button(
+            "Remove City",
+            key="trip_planner_remove_city_button",
+            use_container_width=True,
+            disabled=st.session_state.get("trip_planner_extra_city_count", 0) <= 0,
+        ):
+            slot_to_clear = st.session_state.get("trip_planner_extra_city_count", 0)
+            if slot_to_clear > 0:
+                clear_trip_planner_extra_city_slot(slot_to_clear)
+                st.session_state["trip_planner_extra_city_count"] = max(0, slot_to_clear - 1)
+    for slot_index in range(1, st.session_state.get("trip_planner_extra_city_count", 0) + 1):
+        slot_keys = get_trip_planner_extra_city_keys(slot_index)
+        st.markdown(
+            f"<div class='intel-card-kicker' style='margin: 0.06rem 0 0.22rem;'>Comparison City {slot_index}</div>",
+            unsafe_allow_html=True,
+        )
+        comparison_event = SEARCH_COMPONENT(
+            initial_value=st.session_state.get(slot_keys["query"], ""),
+            recent_searches=get_search_component_recent_entries(),
+            placeholder=f"Additional city {slot_index}",
+            enable_geolocation=False,
+            key=slot_keys["component"],
+            default=None,
+        )
+        handle_compare_search_component_event(
+            comparison_event,
+            slot_keys["query"],
+            slot_keys["selection"],
+            slot_keys["event"],
+        )
+
     min_date, max_date = get_trip_planner_picker_bounds()
     date_columns = st.columns(2)
     with date_columns[0]:
@@ -4590,7 +5122,7 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
         )
 
     st.caption(
-        f"Trip forecasts are currently available from {min_date.strftime('%b %d, %Y')} through {max_date.strftime('%b %d, %Y')}."
+        f"Trip forecasts are currently available from {min_date.strftime('%b %d, %Y')} through {max_date.strftime('%b %d, %Y')}. Add up to three comparison cities to compare every selected stop across the same date window."
     )
 
     create_trip_pdf = st.button(
@@ -4605,6 +5137,15 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
         origin_selection = st.session_state.get("trip_planner_origin_selection")
         destination_query = str(st.session_state.get("trip_planner_destination_query") or "").strip()
         destination_selection = st.session_state.get("trip_planner_destination_selection")
+        comparison_slots = []
+        for slot_index in range(1, st.session_state.get("trip_planner_extra_city_count", 0) + 1):
+            slot_keys = get_trip_planner_extra_city_keys(slot_index)
+            comparison_slots.append(
+                {
+                    "query": str(st.session_state.get(slot_keys["query"]) or "").strip(),
+                    "selection": st.session_state.get(slot_keys["selection"]),
+                }
+            )
 
         try:
             with st.spinner("Creating trip plan PDF..."):
@@ -4613,6 +5154,7 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
                     origin_selection,
                     destination_query,
                     destination_selection,
+                    comparison_slots,
                     start_date,
                     end_date,
                     temp_symbol,
@@ -4621,16 +5163,14 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
                 )
             st.session_state["trip_planner_error"] = ""
 
-            origin_weather = artifact.get("origin_weather")
-            destination_weather = artifact.get("destination_weather")
-            if origin_weather:
-                st.session_state["trip_planner_origin_query"] = origin_weather.get("resolved_city") or origin_query
-                st.session_state["trip_planner_origin_selection"] = build_weather_search_entry(origin_weather, meta="Recent search")
-                remember_recent_search(origin_weather)
-            if destination_weather:
-                st.session_state["trip_planner_destination_query"] = destination_weather.get("resolved_city") or destination_query
-                st.session_state["trip_planner_destination_selection"] = build_weather_search_entry(destination_weather, meta="Recent search")
-                remember_recent_search(destination_weather)
+            for slot_result in artifact.get("slot_results", []):
+                weather = slot_result.get("weather")
+                slot_keys = get_trip_planner_slot_keys(slot_result.get("slot_id"))
+                if not weather or not slot_keys:
+                    continue
+                st.session_state[slot_keys["query"]] = weather.get("resolved_city") or st.session_state.get(slot_keys["query"], "")
+                st.session_state[slot_keys["selection"]] = build_weather_search_entry(weather, meta="Recent search")
+                remember_recent_search(weather)
 
             download_payload = {
                 "href": build_data_uri(artifact["bytes"], "application/pdf"),
@@ -4662,12 +5202,12 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
         st.warning(trip_planner_error)
 
 
-def render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit):
+def render_activities_tab(weather_to_show, intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit):
     time_context = intelligence_payload.get("time_context") or {}
-    local_highlights = intelligence_payload.get("local_highlights") or []
+    local_highlights = build_local_highlight_recommendations(weather_to_show, time_context)
     render_insight_section_header(
         "Activity Recommendations",
-        f"This section now leads with a short activity scan for {time_context.get('phase_reference', 'right now')}, then keeps the detailed guidance and trip tools below.",
+        f"This keeps the activity view compact for {time_context.get('phase_reference', 'right now')}: one quick recommendation block, nearby places, and the trip planner without the extra duplicate guidance section.",
         "Move Smart",
     )
     quick_items = build_activities_quick_read_items(intelligence_payload)
@@ -4678,13 +5218,6 @@ def render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_f
             quick_items,
             style_variant="insight-readable",
         )
-        render_soft_section_divider()
-        render_insight_section_header(
-            "Detailed Activity Guidance",
-            f"Shorter reads for walking, exercise, indoor backup, and travel, all tuned to {time_context.get('phase_reference', 'the local time window')}.",
-            "Read Next",
-        )
-    render_guidance_card_grid(intelligence_payload.get("activities", []), grid_variant="insight-readable")
     if local_highlights:
         render_soft_section_divider()
         render_insight_section_header(
@@ -4987,7 +5520,7 @@ def render_weather_tabbed_section(weather_to_show, city_to_show, temp_symbol, sp
     elif active_section == "What to Wear":
         render_clothing_tab(intelligence_payload)
     elif active_section == "Activities":
-        render_activities_tab(intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit)
+        render_activities_tab(weather_to_show, intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit)
     elif active_section == "Map":
         render_map_tab(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit)
     elif active_section == "Compare":
@@ -5298,9 +5831,9 @@ def render_forecast_section(
                         <div class="forecast-row">
                             <div class="forecast-day-name">{escape(day["day"])}</div>
                             <div class="forecast-icon">{escape(get_condition_icon(day["condition"]))}</div>
-                            <div class="forecast-low">{escape(str(low_value))}{escape(temp_symbol)}</div>
+                            <div class="forecast-low">{escape(str(low_value))}&nbsp;{escape(temp_symbol.strip())}</div>
                             <div class="forecast-bar"><div class="forecast-bar-fill" style="width:{fill_percent}%"></div></div>
-                            <div class="forecast-high">{escape(str(high_value))}{escape(temp_symbol)}</div>
+                            <div class="forecast-high">{escape(str(high_value))}&nbsp;{escape(temp_symbol.strip())}</div>
                             <div class="forecast-chevron">&#9662;</div>
                         </div>
                     </button>
@@ -5352,7 +5885,7 @@ def render_forecast_section(
           .forecast-row {{
             position: relative;
             display: grid;
-            grid-template-columns: 3.2rem 2rem 3.3rem 1fr 3.3rem 1.9rem;
+            grid-template-columns: 3.2rem 2rem minmax(4.3rem, auto) 1fr minmax(4.3rem, auto) 1.9rem;
             gap: 0.6rem;
             align-items: center;
             padding: 0.62rem 0;
@@ -5368,6 +5901,8 @@ def render_forecast_section(
           .forecast-high {{
             opacity: 0.92;
             font-size: 0.96rem;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
           }}
           .forecast-bar {{
             position: relative;
@@ -5395,7 +5930,7 @@ def render_forecast_section(
           }}
           @media (max-width: 900px) {{
             .forecast-row {{
-              grid-template-columns: 2.8rem 1.6rem 2.9rem 1fr 2.9rem 1.7rem;
+              grid-template-columns: 2.8rem 1.6rem minmax(4rem, auto) 1fr minmax(4rem, auto) 1.7rem;
               gap: 0.45rem;
             }}
           }}

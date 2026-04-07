@@ -84,6 +84,8 @@ def build_excel_export(bundle):
 
 
 def build_pdf_export(bundle):
+    return _build_pdf_export_v2(bundle)
+
     page_width = 612
     page_height = 792
     commands = []
@@ -263,6 +265,8 @@ def build_pdf_export(bundle):
 
 
 def build_trip_plan_pdf(bundle):
+    return _build_trip_plan_pdf_v2(bundle)
+
     page_width = 612
     page_height = 792
     pages = []
@@ -759,6 +763,598 @@ def build_trip_plan_pdf(bundle):
         rgb=(0.34, 0.42, 0.52),
         line_gap=8,
     )
+
+    content_streams = ["\n".join(page).encode("latin-1", errors="replace") for page in pages]
+    return _build_multi_page_pdf_bytes(content_streams, page_width, page_height)
+
+
+def _draw_brand_logo(draw_rect, draw_line, draw_text, x, top, scale=1.0):
+    panel_width = 72 * scale
+    panel_height = 58 * scale
+    draw_rect(x, top, panel_width, panel_height, (0.92, 0.97, 1.0), (0.78, 0.88, 0.95), 0.6)
+    skyline_top = top + (38 * scale)
+    draw_line(x + (14 * scale), skyline_top, x + (58 * scale), skyline_top, (0.9, 0.97, 1.0), 2.4 * scale)
+    draw_line(x + (22 * scale), skyline_top, x + (22 * scale), top + (24 * scale), (0.84, 0.94, 0.99), 3.2 * scale)
+    draw_line(x + (33 * scale), skyline_top, x + (33 * scale), top + (18 * scale), (0.85, 0.95, 0.995), 4.0 * scale)
+    draw_line(x + (45 * scale), skyline_top, x + (45 * scale), top + (12 * scale), (0.88, 0.96, 1.0), 4.6 * scale)
+    draw_line(x + (57 * scale), skyline_top, x + (57 * scale), top + (22 * scale), (0.85, 0.95, 0.995), 3.8 * scale)
+    draw_line(x + (18 * scale), top + (32 * scale), x + (28 * scale), top + (22 * scale), (0.96, 0.995, 1.0), 2.2 * scale)
+    draw_line(x + (28 * scale), top + (22 * scale), x + (37 * scale), top + (18 * scale), (0.96, 0.995, 1.0), 2.2 * scale)
+    draw_line(x + (37 * scale), top + (18 * scale), x + (48 * scale), top + (18 * scale), (0.96, 0.995, 1.0), 2.2 * scale)
+    draw_text(x + (60 * scale), top + (17 * scale), "o", font_name="F2", size=9 * scale, rgb=(0.98, 1.0, 1.0))
+    draw_text(x + (88 * scale), top + (16 * scale), "SKYLINE", font_name="F2", size=20 * scale, rgb=(1, 1, 1))
+    draw_text(x + (90 * scale), top + (37 * scale), "FORECAST", font_name="F2", size=10 * scale, rgb=(0.86, 0.93, 0.98))
+    draw_line(x + (88 * scale), top + (46 * scale), x + (198 * scale), top + (46 * scale), (0.82, 0.92, 0.98), 1.2 * scale)
+
+
+def _build_pdf_export_v2(bundle):
+    page_width = 612
+    page_height = 792
+    commands = []
+
+    def page_y(top_offset):
+        return page_height - top_offset
+
+    def draw_rect(x, top, width, height, fill_rgb, stroke_rgb=None, line_width=1):
+        y = page_height - top - height
+        fill = f"{fill_rgb[0]:.3f} {fill_rgb[1]:.3f} {fill_rgb[2]:.3f} rg"
+        if stroke_rgb is None:
+            commands.append(f"{fill}\n{x:.2f} {y:.2f} {width:.2f} {height:.2f} re f")
+            return
+        stroke = f"{stroke_rgb[0]:.3f} {stroke_rgb[1]:.3f} {stroke_rgb[2]:.3f} RG"
+        commands.append(
+            f"{line_width:.2f} w\n{fill}\n{stroke}\n{x:.2f} {y:.2f} {width:.2f} {height:.2f} re B"
+        )
+
+    def draw_text(x, top, text, font_name="F1", size=11, rgb=(0.12, 0.2, 0.3)):
+        safe_text = _pdf_escape(text)
+        commands.append(
+            "BT\n"
+            f"/{font_name} {size} Tf\n"
+            f"{rgb[0]:.3f} {rgb[1]:.3f} {rgb[2]:.3f} rg\n"
+            f"1 0 0 1 {x:.2f} {page_y(top):.2f} Tm\n"
+            f"({safe_text}) Tj\n"
+            "ET"
+        )
+
+    def draw_line(x1, top1, x2, top2, stroke_rgb, line_width=1):
+        commands.append(
+            f"{line_width:.2f} w\n"
+            f"{stroke_rgb[0]:.3f} {stroke_rgb[1]:.3f} {stroke_rgb[2]:.3f} RG\n"
+            f"{x1:.2f} {page_y(top1):.2f} m\n"
+            f"{x2:.2f} {page_y(top2):.2f} l S"
+        )
+
+    def draw_wrapped_text(x, top, text, max_chars, font_name="F1", size=10, rgb=(0.2, 0.27, 0.36), line_gap=13):
+        lines = wrap(_pdf_plain(text), width=max_chars) or [""]
+        for index, line in enumerate(lines):
+            draw_text(x, top + (index * line_gap), line, font_name=font_name, size=size, rgb=rgb)
+        return top + (len(lines) * line_gap)
+
+    draw_rect(36, 34, 540, 92, (0.13, 0.25, 0.42))
+    _draw_brand_logo(draw_rect, draw_line, draw_text, 54, 52, 0.74)
+    draw_text(404, 66, "Weather Export", font_name="F2", size=17, rgb=(1, 1, 1))
+    draw_text(
+        54,
+        112,
+        f'{bundle["city"]} | {bundle["range_label"]} | Generated {bundle["generated_at"]}',
+        font_name="F1",
+        size=10,
+        rgb=(0.92, 0.96, 1.0),
+    )
+    draw_text(
+        54,
+        128,
+        f'Temperature Unit: {bundle["temperature_unit"]}   Wind Unit: {bundle["wind_unit"]}',
+        font_name="F1",
+        size=9,
+        rgb=(0.86, 0.92, 0.98),
+    )
+
+    stat_cards = [
+        ("Condition", bundle["current"]["Condition"]),
+        ("Temperature", bundle["current"]["Temperature"]),
+        ("Feels Like", bundle["current"]["Feels Like"]),
+        ("Wind", bundle["current"]["Wind"]),
+    ]
+    card_width = 124
+    card_gap = 12
+    for index, (label, value) in enumerate(stat_cards):
+        x_position = 36 + (index * (card_width + card_gap))
+        draw_rect(x_position, 158, card_width, 72, (0.93, 0.96, 0.99), (0.82, 0.88, 0.94), 0.8)
+        draw_text(x_position + 14, 180, label, font_name="F2", size=9, rgb=(0.32, 0.42, 0.55))
+        draw_text(x_position + 14, 205, value, font_name="F2", size=13, rgb=(0.11, 0.2, 0.31))
+
+    draw_rect(36, 248, 540, 110, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(54, 272, "Advisory Snapshot", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    next_top = draw_wrapped_text(
+        54,
+        296,
+        "Alerts: " + " | ".join(alert["title"] for alert in bundle["alerts"]),
+        max_chars=88,
+        font_name="F1",
+        size=9,
+        rgb=(0.2, 0.27, 0.36),
+        line_gap=12,
+    )
+    next_top = draw_wrapped_text(
+        54,
+        next_top + 6,
+        f'Insight: {bundle["primary_insight"]["title"]}. {bundle["primary_insight"]["body"]}',
+        max_chars=88,
+        font_name="F1",
+        size=9,
+        rgb=(0.2, 0.27, 0.36),
+        line_gap=12,
+    )
+    draw_wrapped_text(
+        54,
+        next_top + 6,
+        "Scores: "
+        + " | ".join(
+            f'{score["label"]} {score["value"]}/10'
+            for score in bundle["scores"]
+        ),
+        max_chars=88,
+        font_name="F1",
+        size=9,
+        rgb=(0.2, 0.27, 0.36),
+        line_gap=12,
+    )
+
+    table_top = 380
+    draw_rect(36, table_top, 540, 28, (0.36, 0.49, 0.65))
+    draw_text(52, table_top + 18, "Selected Date Window", font_name="F2", size=12, rgb=(1, 1, 1))
+
+    headers = [
+        ("Date", 36, 72),
+        ("Condition", 108, 100),
+        ("Low", 208, 54),
+        ("High", 262, 54),
+        ("Rain %", 316, 56),
+        ("Rain Total", 372, 64),
+        ("UV", 436, 38),
+        ("Sunrise / Sunset", 474, 102),
+    ]
+    header_top = table_top + 38
+    draw_rect(36, header_top, 540, 26, (0.88, 0.92, 0.97), (0.82, 0.88, 0.94), 0.6)
+    for title, x_position, _ in headers:
+        draw_text(x_position + 6, header_top + 17, title, font_name="F2", size=8, rgb=(0.18, 0.27, 0.38))
+
+    row_top = header_top + 26
+    available_table_height = 312
+    row_count = max(1, len(bundle["forecast_rows"]))
+    row_height = 26 if row_count <= 12 else max(16, int(available_table_height / row_count))
+    row_text_offset = 17 if row_height >= 22 else max(11, row_height - 5)
+    row_font_size = 8 if row_height >= 20 else 7
+    for index, row in enumerate(bundle["forecast_rows"]):
+        fill_color = (0.97, 0.98, 1.0) if index % 2 == 0 else (0.94, 0.97, 0.995)
+        current_row_top = row_top + (index * row_height)
+        draw_rect(36, current_row_top, 540, row_height, fill_color, (0.86, 0.9, 0.95), 0.4)
+        values = [
+            row["Date"],
+            row["Condition"],
+            row["Low"],
+            row["High"],
+            row["Rain Chance"],
+            row["Rain Total"],
+            row["UV Index"],
+            f'{row["Sunrise"]} / {row["Sunset"]}',
+        ]
+        for (_, x_position, width), value in zip(headers, values):
+            wrapped = wrap(_pdf_plain(value), width=max(8, int(width / 5.8))) or [""]
+            draw_text(
+                x_position + 6,
+                current_row_top + row_text_offset,
+                wrapped[0],
+                font_name="F1",
+                size=row_font_size,
+                rgb=(0.2, 0.27, 0.36),
+            )
+
+    footer_text = "Export includes the current snapshot and the selected weather window."
+    footer_top = min(756, row_top + (row_count * row_height) + 18)
+    draw_text(36, footer_top, footer_text, font_name="F1", size=8, rgb=(0.42, 0.5, 0.6))
+
+    return _build_pdf_bytes("\n".join(commands).encode("latin-1", errors="replace"), page_width, page_height)
+
+
+def _build_trip_plan_pdf_v2(bundle):
+    page_width = 612
+    page_height = 792
+    pages = []
+    point_palette = {
+        "origin": {"fill": (0.16, 0.31, 0.49), "soft": (0.9, 0.94, 0.99), "stroke": (0.26, 0.4, 0.58)},
+        "destination": {"fill": (0.89, 0.47, 0.35), "soft": (0.99, 0.93, 0.9), "stroke": (0.79, 0.38, 0.28)},
+        "comparison": {"fill": (0.45, 0.5, 0.67), "soft": (0.93, 0.94, 0.99), "stroke": (0.34, 0.39, 0.56)},
+    }
+
+    cities = bundle.get("cities", [])
+    map_points = bundle.get("map_points", [])
+    route_segments = bundle.get("route_segments", [])
+    comparison_rows = bundle.get("comparison_rows", [])
+    planner_highlights = bundle.get("planner_highlights", [])
+
+    def new_page():
+        commands = []
+        pages.append(commands)
+        return commands
+
+    def page_y(top_offset):
+        return page_height - top_offset
+
+    def draw_rect(page, x, top, width, height, fill_rgb, stroke_rgb=None, line_width=1):
+        y = page_height - top - height
+        fill = f"{fill_rgb[0]:.3f} {fill_rgb[1]:.3f} {fill_rgb[2]:.3f} rg"
+        if stroke_rgb is None:
+            page.append(f"{fill}\n{x:.2f} {y:.2f} {width:.2f} {height:.2f} re f")
+            return
+        stroke = f"{stroke_rgb[0]:.3f} {stroke_rgb[1]:.3f} {stroke_rgb[2]:.3f} RG"
+        page.append(
+            f"{line_width:.2f} w\n{fill}\n{stroke}\n{x:.2f} {y:.2f} {width:.2f} {height:.2f} re B"
+        )
+
+    def draw_text(page, x, top, text, font_name="F1", size=11, rgb=(0.12, 0.2, 0.3)):
+        safe_text = _pdf_escape(text)
+        page.append(
+            "BT\n"
+            f"/{font_name} {size} Tf\n"
+            f"{rgb[0]:.3f} {rgb[1]:.3f} {rgb[2]:.3f} rg\n"
+            f"1 0 0 1 {x:.2f} {page_y(top):.2f} Tm\n"
+            f"({safe_text}) Tj\n"
+            "ET"
+        )
+
+    def draw_wrapped_text(page, x, top, text, max_chars, font_name="F1", size=10, rgb=(0.2, 0.27, 0.36), line_gap=13):
+        lines = wrap(_pdf_plain(text), width=max_chars) or [""]
+        for index, line in enumerate(lines):
+            draw_text(page, x, top + (index * line_gap), line, font_name=font_name, size=size, rgb=rgb)
+        return top + (len(lines) * line_gap)
+
+    def draw_line(page, x1, top1, x2, top2, stroke_rgb, line_width=1, dash=None):
+        dash_command = "[] 0 d"
+        if dash:
+            dash_command = f"[{dash[0]:.2f} {dash[1]:.2f}] 0 d"
+        page.append(
+            f"{line_width:.2f} w\n"
+            f"{stroke_rgb[0]:.3f} {stroke_rgb[1]:.3f} {stroke_rgb[2]:.3f} RG\n"
+            f"{dash_command}\n"
+            f"{x1:.2f} {page_y(top1):.2f} m\n"
+            f"{x2:.2f} {page_y(top2):.2f} l S"
+        )
+
+    def draw_circle(page, center_x, top_center, radius, fill_rgb, stroke_rgb=None, line_width=1):
+        kappa = 0.5522847498
+        control = radius * kappa
+        center_y = page_y(top_center)
+        path = (
+            f"{center_x + radius:.2f} {center_y:.2f} m\n"
+            f"{center_x + radius:.2f} {center_y + control:.2f} {center_x + control:.2f} {center_y + radius:.2f} {center_x:.2f} {center_y + radius:.2f} c\n"
+            f"{center_x - control:.2f} {center_y + radius:.2f} {center_x - radius:.2f} {center_y + control:.2f} {center_x - radius:.2f} {center_y:.2f} c\n"
+            f"{center_x - radius:.2f} {center_y - control:.2f} {center_x - control:.2f} {center_y - radius:.2f} {center_x:.2f} {center_y - radius:.2f} c\n"
+            f"{center_x + control:.2f} {center_y - radius:.2f} {center_x + radius:.2f} {center_y - control:.2f} {center_x + radius:.2f} {center_y:.2f} c"
+        )
+        fill = f"{fill_rgb[0]:.3f} {fill_rgb[1]:.3f} {fill_rgb[2]:.3f} rg"
+        if stroke_rgb is None:
+            page.append(f"{fill}\n{path}\nf")
+            return
+        stroke = f"{stroke_rgb[0]:.3f} {stroke_rgb[1]:.3f} {stroke_rgb[2]:.3f} RG"
+        page.append(f"{line_width:.2f} w\n{fill}\n{stroke}\n{path}\nB")
+
+    def draw_brand_logo(page, x, top, scale=1.0):
+        _draw_brand_logo(
+            lambda rx, rt, rw, rh, fill_rgb, stroke_rgb=None, line_width=1: draw_rect(page, rx, rt, rw, rh, fill_rgb, stroke_rgb, line_width),
+            lambda x1, t1, x2, t2, stroke_rgb, line_width=1: draw_line(page, x1, t1, x2, t2, stroke_rgb, line_width),
+            lambda tx, tt, text, font_name="F1", size=11, rgb=(0.12, 0.2, 0.3): draw_text(page, tx, tt, text, font_name, size, rgb),
+            x,
+            top,
+            scale,
+        )
+
+    def draw_metric_card(page, x, top, width, height, label, value, body):
+        draw_rect(page, x, top, width, height, (0.95, 0.97, 1.0), (0.82, 0.88, 0.94), 0.7)
+        draw_text(page, x + 14, top + 18, label, font_name="F2", size=8, rgb=(0.35, 0.45, 0.57))
+        next_top = draw_wrapped_text(
+            page,
+            x + 14,
+            top + 38,
+            value,
+            max_chars=max(14, int(width / 7.2)),
+            font_name="F2",
+            size=11,
+            rgb=(0.11, 0.2, 0.31),
+            line_gap=12,
+        )
+        draw_wrapped_text(
+            page,
+            x + 14,
+            next_top + 2,
+            body,
+            max_chars=max(18, int(width / 6.2)),
+            font_name="F1",
+            size=8,
+            rgb=(0.23, 0.31, 0.41),
+            line_gap=9,
+        )
+
+    def draw_cell_text(page, x, top, width, height, text, font_name="F1", size=7, rgb=(0.2, 0.27, 0.36)):
+        lines = wrap(_pdf_plain(text), width=max(8, int(width / 5.9))) or [""]
+        if len(lines) > 3:
+            lines = lines[:2] + [lines[2][: max(4, len(lines[2]) - 3)] + "..."]
+        line_gap = 8
+        start_top = top + max(12, (height - (len(lines) * line_gap)) / 2 + 5)
+        for index, line in enumerate(lines):
+            draw_text(page, x + 6, start_top + (index * line_gap), line, font_name=font_name, size=size, rgb=rgb)
+
+    cover_page = new_page()
+    draw_rect(cover_page, 36, 34, 540, 92, (0.13, 0.25, 0.42))
+    draw_brand_logo(cover_page, 54, 52, 0.74)
+    draw_text(cover_page, 402, 64, "Trip Planner PDF", font_name="F2", size=17, rgb=(1, 1, 1))
+    route_top = draw_wrapped_text(
+        cover_page,
+        54,
+        112,
+        bundle.get("route_label", "Trip Planner"),
+        max_chars=72,
+        font_name="F2",
+        size=14,
+        rgb=(0.95, 0.98, 1.0),
+        line_gap=14,
+    )
+    draw_text(
+        cover_page,
+        54,
+        route_top + 4,
+        f'{bundle.get("date_range_label", "")} | {bundle.get("city_count", 0)} cities | Generated {bundle.get("generated_at", "")}',
+        font_name="F1",
+        size=9,
+        rgb=(0.86, 0.92, 0.98),
+    )
+
+    draw_rect(cover_page, 36, 156, 540, 94, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(cover_page, 54, 180, "Planner Overview", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    draw_wrapped_text(
+        cover_page,
+        54,
+        204,
+        bundle.get("overview_body", ""),
+        max_chars=90,
+        font_name="F1",
+        size=9,
+        rgb=(0.2, 0.27, 0.36),
+        line_gap=12,
+    )
+
+    card_count = max(1, len(cities))
+    if card_count <= 2:
+        cover_columns = 2
+    elif card_count <= 4:
+        cover_columns = 2
+    else:
+        cover_columns = 3
+    card_gap = 12
+    cover_card_width = (540 - ((cover_columns - 1) * card_gap)) / cover_columns
+    cover_card_height = 94 if cover_columns == 2 else 90
+    cards_top = 270
+    for index, city in enumerate(cities):
+        row_index = index // cover_columns
+        column_index = index % cover_columns
+        x_position = 36 + (column_index * (cover_card_width + card_gap))
+        top_position = cards_top + (row_index * (cover_card_height + 12))
+        draw_rect(cover_page, x_position, top_position, cover_card_width, cover_card_height, (0.95, 0.97, 1.0), (0.83, 0.89, 0.95), 0.6)
+        draw_text(cover_page, x_position + 14, top_position + 16, city.get("role_label", "City"), font_name="F2", size=8, rgb=(0.36, 0.46, 0.58))
+        draw_wrapped_text(
+            cover_page,
+            x_position + 14,
+            top_position + 34,
+            city.get("short_name", ""),
+            max_chars=max(12, int(cover_card_width / 7.0)),
+            font_name="F2",
+            size=11,
+            rgb=(0.11, 0.2, 0.31),
+            line_gap=11,
+        )
+        draw_text(cover_page, x_position + 14, top_position + 58, city.get("current_summary", ""), font_name="F1", size=8, rgb=(0.22, 0.31, 0.41))
+        draw_wrapped_text(
+            cover_page,
+            x_position + 14,
+            top_position + 72,
+            f'Trip range {city.get("comparison_values", {}).get("Trip Range", "--")} | Best {city.get("best_day_label", "--")}',
+            max_chars=max(16, int(cover_card_width / 6.1)),
+            font_name="F1",
+            size=7,
+            rgb=(0.28, 0.36, 0.46),
+            line_gap=8,
+        )
+
+    if planner_highlights:
+        highlight_top = 590 if cover_columns == 3 else 568
+        draw_text(cover_page, 36, highlight_top, "Quick Comparison Highlights", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+        highlight_card_width = (540 - 24) / 3
+        for index, item in enumerate(planner_highlights[:3]):
+            x_position = 36 + (index * (highlight_card_width + 12))
+            draw_metric_card(cover_page, x_position, highlight_top + 18, highlight_card_width, 82, item["label"], item["value"], item["body"])
+
+    map_page = new_page()
+    draw_rect(map_page, 36, 34, 540, 80, (0.15, 0.27, 0.44))
+    draw_brand_logo(map_page, 54, 48, 0.66)
+    draw_text(map_page, 416, 62, "Route Overview", font_name="F2", size=16, rgb=(1, 1, 1))
+    draw_text(map_page, 54, 102, bundle.get("route_label", ""), font_name="F1", size=9, rgb=(0.88, 0.94, 0.99))
+
+    map_top = 124
+    map_height = 286
+    draw_rect(map_page, 36, map_top, 540, map_height, (0.95, 0.97, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(map_page, 54, map_top + 22, "Geographic Route Sketch", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    draw_wrapped_text(
+        map_page,
+        54,
+        map_top + 44,
+        "The route page now places each chosen city according to its latitude and longitude instead of using fixed fake map markers.",
+        max_chars=86,
+        font_name="F1",
+        size=8,
+        rgb=(0.22, 0.3, 0.39),
+        line_gap=10,
+    )
+
+    map_canvas_left = 52
+    map_canvas_top = map_top + 72
+    map_canvas_width = 508
+    map_canvas_height = 156
+    draw_rect(map_page, map_canvas_left, map_canvas_top, map_canvas_width, map_canvas_height, (0.92, 0.96, 0.995), (0.84, 0.9, 0.96), 0.5)
+    for step in range(1, 6):
+        vertical_x = map_canvas_left + (step * map_canvas_width / 6)
+        horizontal_top = map_canvas_top + (step * map_canvas_height / 6)
+        draw_line(map_page, vertical_x, map_canvas_top, vertical_x, map_canvas_top + map_canvas_height, (0.87, 0.91, 0.96), 0.5)
+        draw_line(map_page, map_canvas_left, horizontal_top, map_canvas_left + map_canvas_width, horizontal_top, (0.87, 0.91, 0.96), 0.5)
+
+    for segment in route_segments:
+        start_x = map_canvas_left + (segment["start_x"] * map_canvas_width)
+        start_top = map_canvas_top + (segment["start_y"] * map_canvas_height)
+        end_x = map_canvas_left + (segment["end_x"] * map_canvas_width)
+        end_top = map_canvas_top + (segment["end_y"] * map_canvas_height)
+        draw_line(map_page, start_x, start_top, end_x, end_top, (0.44, 0.57, 0.74), 1.8, dash=(6, 3))
+
+    for point in map_points:
+        palette = point_palette.get(point.get("kind"), point_palette["comparison"])
+        point_x = map_canvas_left + (point["x"] * map_canvas_width)
+        point_top = map_canvas_top + (point["y"] * map_canvas_height)
+        draw_circle(map_page, point_x, point_top, 10, palette["soft"], palette["stroke"], 0.8)
+        draw_circle(map_page, point_x, point_top, 6.2, palette["fill"], palette["stroke"], 0.6)
+        draw_text(map_page, point_x - 2.8, point_top + 2.8, str(point["index"]), font_name="F2", size=7, rgb=(1, 1, 1))
+
+    legend_top = map_top + 240
+    legend_columns = 2
+    legend_width = (508 - 12) / legend_columns
+    for index, point in enumerate(map_points):
+        row_index = index // legend_columns
+        column_index = index % legend_columns
+        block_x = 52 + (column_index * (legend_width + 12))
+        block_top = legend_top + (row_index * 22)
+        palette = point_palette.get(point.get("kind"), point_palette["comparison"])
+        draw_circle(map_page, block_x + 8, block_top + 9, 4.3, palette["fill"], palette["stroke"], 0.5)
+        draw_text(map_page, block_x + 18, block_top + 12, f'{point["index"]}. {point["label"]} ({point["subtitle"]})', font_name="F2", size=7, rgb=(0.16, 0.24, 0.34))
+        draw_text(map_page, block_x + 18, block_top + 21, f'{point["summary"]} | {point["latitude"]}, {point["longitude"]}', font_name="F1", size=6, rgb=(0.31, 0.39, 0.49))
+
+    comparison_top = 432
+    draw_rect(map_page, 36, comparison_top, 540, 300, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+    draw_text(map_page, 54, comparison_top + 22, "City Comparison Matrix", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+    draw_wrapped_text(
+        map_page,
+        54,
+        comparison_top + 44,
+        "The matrix keeps the selected cities side by side for the same travel window, so you can compare present conditions and trip-level signals without jumping between pages.",
+        max_chars=88,
+        font_name="F1",
+        size=8,
+        rgb=(0.22, 0.3, 0.39),
+        line_gap=10,
+    )
+
+    header_row_top = comparison_top + 76
+    metric_column_width = 108
+    value_column_width = (540 - metric_column_width) / max(1, len(cities))
+    draw_rect(map_page, 36, header_row_top, 540, 24, (0.88, 0.92, 0.97), (0.82, 0.88, 0.94), 0.5)
+    draw_text(map_page, 44, header_row_top + 16, "Metric", font_name="F2", size=8, rgb=(0.18, 0.27, 0.38))
+    for index, city in enumerate(cities):
+        cell_x = 36 + metric_column_width + (index * value_column_width)
+        draw_text(map_page, cell_x + 6, header_row_top + 16, city.get("short_name", ""), font_name="F2", size=8, rgb=(0.18, 0.27, 0.38))
+
+    matrix_row_top = header_row_top + 24
+    matrix_row_height = 28 if len(cities) <= 4 else 32
+    for index, row in enumerate(comparison_rows[:7]):
+        current_top = matrix_row_top + (index * matrix_row_height)
+        fill_color = (0.97, 0.98, 1.0) if index % 2 == 0 else (0.94, 0.97, 0.995)
+        draw_rect(map_page, 36, current_top, 540, matrix_row_height, fill_color, (0.86, 0.9, 0.95), 0.4)
+        draw_cell_text(map_page, 36, current_top, metric_column_width, matrix_row_height, row["label"], font_name="F2", size=7, rgb=(0.17, 0.26, 0.36))
+        for city_index, value in enumerate(row.get("values", [])):
+            cell_x = 36 + metric_column_width + (city_index * value_column_width)
+            draw_cell_text(map_page, cell_x, current_top, value_column_width, matrix_row_height, value, font_name="F1", size=6 if len(cities) >= 5 else 7)
+
+    for city in cities:
+        detail_page = new_page()
+        draw_rect(detail_page, 36, 34, 540, 84, (0.15, 0.27, 0.44))
+        draw_brand_logo(detail_page, 54, 50, 0.68)
+        draw_text(detail_page, 54, 128, city.get("city_name", ""), font_name="F2", size=18, rgb=(0.11, 0.2, 0.31))
+        draw_text(detail_page, 54, 148, f'{city.get("role_label", "City")} | {bundle.get("date_range_label", "")}', font_name="F1", size=9, rgb=(0.33, 0.41, 0.52))
+
+        draw_rect(detail_page, 36, 166, 540, 84, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+        draw_text(detail_page, 54, 190, "City Summary", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+        draw_wrapped_text(
+            detail_page,
+            54,
+            214,
+            city.get("overview_body", ""),
+            max_chars=90,
+            font_name="F1",
+            size=9,
+            rgb=(0.2, 0.27, 0.36),
+            line_gap=12,
+        )
+
+        note_cards = city.get("note_cards", [])[:4]
+        note_top = 268
+        note_width = 264
+        note_height = 64
+        for index, note in enumerate(note_cards):
+            row_index = index // 2
+            column_index = index % 2
+            x_position = 36 + (column_index * (note_width + 12))
+            top_position = note_top + (row_index * (note_height + 12))
+            draw_metric_card(detail_page, x_position, top_position, note_width, note_height, note.get("label", ""), note.get("value", ""), note.get("body", ""))
+
+        table_top = 424
+        draw_rect(detail_page, 36, table_top, 540, 28, (0.36, 0.49, 0.65))
+        draw_text(detail_page, 52, table_top + 18, "Daily Forecast Window", font_name="F2", size=12, rgb=(1, 1, 1))
+
+        headers = [
+            ("Date", 36, 86),
+            ("Day", 122, 44),
+            ("Condition", 166, 96),
+            ("Low", 262, 54),
+            ("High", 316, 54),
+            ("Rain", 370, 54),
+            ("Wind", 424, 86),
+            ("UV", 510, 66),
+        ]
+        header_top = table_top + 38
+        draw_rect(detail_page, 36, header_top, 540, 24, (0.88, 0.92, 0.97), (0.82, 0.88, 0.94), 0.5)
+        for title, x_position, _ in headers:
+            draw_text(detail_page, x_position + 6, header_top + 16, title, font_name="F2", size=8, rgb=(0.18, 0.27, 0.38))
+
+        row_top = header_top + 24
+        row_count = max(1, len(city.get("daily_rows", [])))
+        available_table_height = 250
+        row_height = 26 if row_count <= 10 else max(18, int(available_table_height / row_count))
+        row_text_offset = 16 if row_height >= 22 else max(10, row_height - 6)
+        row_font_size = 7 if row_height >= 20 else 6
+        for index, row in enumerate(city.get("daily_rows", [])):
+            current_top = row_top + (index * row_height)
+            fill_color = (0.97, 0.98, 1.0) if index % 2 == 0 else (0.94, 0.97, 0.995)
+            draw_rect(detail_page, 36, current_top, 540, row_height, fill_color, (0.86, 0.9, 0.95), 0.4)
+            row_values = [
+                row["Date"],
+                row["Day"],
+                row["Condition"],
+                row["Low"],
+                row["High"],
+                row["Rain"],
+                row["Wind"],
+                row["UV"],
+            ]
+            for (_, x_position, width), value in zip(headers, row_values):
+                wrapped = wrap(_pdf_plain(value), width=max(6, int(width / 5.7))) or [""]
+                draw_text(detail_page, x_position + 6, current_top + row_text_offset, wrapped[0], font_name="F1", size=row_font_size, rgb=(0.2, 0.27, 0.36))
+
+        draw_text(
+            detail_page,
+            36,
+            756,
+            "This page keeps the same date range used across the comparison matrix so the city-to-city read stays aligned.",
+            font_name="F1",
+            size=8,
+            rgb=(0.42, 0.5, 0.6),
+        )
 
     content_streams = ["\n".join(page).encode("latin-1", errors="replace") for page in pages]
     return _build_multi_page_pdf_bytes(content_streams, page_width, page_height)

@@ -2246,7 +2246,7 @@ def apply_theme(background_source):
         .forecast-row {{
             position: relative;
             display: grid;
-            grid-template-columns: 3.2rem 2rem 3.3rem 1fr 3.3rem 1.9rem;
+            grid-template-columns: 3.2rem 2rem minmax(4.3rem, auto) 1fr minmax(4.3rem, auto) 1.9rem;
             gap: 0.6rem;
             align-items: center;
             padding: 0.62rem 0;
@@ -2288,6 +2288,8 @@ def apply_theme(background_source):
         .forecast-high {{
             opacity: 0.92;
             font-size: 0.96rem;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
         }}
         .forecast-bar {{
             position: relative;
@@ -2478,7 +2480,7 @@ def apply_theme(background_source):
                 font-size: 2.6rem;
             }}
             .forecast-row {{
-                grid-template-columns: 2.8rem 1.6rem 2.9rem 1fr 2.9rem 1.7rem;
+                grid-template-columns: 2.8rem 1.6rem minmax(4rem, auto) 1fr minmax(4rem, auto) 1.7rem;
                 gap: 0.45rem;
             }}
             .forecast-modal-card {{
@@ -3069,6 +3071,14 @@ def apply_theme(background_source):
             border-radius: 18px;
             box-shadow: none;
         }}
+        div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
+            margin-top: -1.15rem;
+            margin-bottom: -0.22rem;
+        }}
+        div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] .stButton {{
+            margin-top: 0;
+            margin-bottom: 0;
+        }}
         @media (max-width: 1500px) {{
             .skyline-nav-brand img {{
                 width: min(100%, 286px);
@@ -3083,6 +3093,10 @@ def apply_theme(background_source):
             div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button p,
             div[data-testid="stVerticalBlock"].skyline-persistent-nav-shell .stButton button span {{
                 font-size: 1.08rem !important;
+            }}
+            div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
+                margin-top: -0.9rem;
+                margin-bottom: -0.16rem;
             }}
         }}
         @media (max-width: 1220px) {{
@@ -3204,6 +3218,10 @@ def apply_theme(background_source):
             .wear-refresh-anchor + div[data-testid="stButton"] {{
                 margin-bottom: -4.45rem;
                 top: -4.75rem;
+            }}
+            div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
+                margin-top: -0.68rem;
+                margin-bottom: -0.08rem;
             }}
             .stTabs [data-baseweb="tab-list"] {{
                 width: 100%;
@@ -5849,9 +5867,9 @@ def build_forecast_row(day_label, condition, low_value, high_value, temp_symbol,
                     <div class="forecast-row">
                         <div class="forecast-day-name">{escape(day_label)}</div>
                         <div class="forecast-icon">{get_condition_icon(condition)}</div>
-                        <div class="forecast-low">{low_value}{temp_symbol}</div>
+                        <div class="forecast-low">{low_value}&nbsp;{escape(temp_symbol.strip())}</div>
                         <div class="forecast-bar"><div class="forecast-bar-fill" style="width:{fill_percent}%"></div></div>
-                        <div class="forecast-high">{high_value}{temp_symbol}</div>
+                        <div class="forecast-high">{high_value}&nbsp;{escape(temp_symbol.strip())}</div>
                         <div class="forecast-chevron">&#9662;</div>
                     </div>
                 </button>

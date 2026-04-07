@@ -6,6 +6,7 @@ import streamlit as st
 
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+PLACE_LOOKUP_TIMEOUT_SECONDS = 3
 
 INDOOR_TOURISM_TAGS = {"museum", "gallery", "aquarium"}
 OUTDOOR_TOURISM_TAGS = {"attraction", "viewpoint", "theme_park", "zoo", "artwork"}
@@ -110,7 +111,7 @@ def _infer_scope(city_label):
 
 def _build_overpass_query(latitude, longitude, radius_m):
     return f"""
-[out:json][timeout:18];
+[out:json][timeout:3];
 (
   nwr(around:{radius_m},{latitude},{longitude})["name"]["tourism"~"attraction|museum|gallery|aquarium|theme_park|zoo|viewpoint|artwork"];
   nwr(around:{radius_m},{latitude},{longitude})["name"]["leisure"~"park|garden|nature_reserve|water_park"];
@@ -130,7 +131,7 @@ def _fetch_place_candidates(latitude, longitude, radius_m):
             OVERPASS_URL,
             data=_build_overpass_query(latitude, longitude, radius_m),
             headers={"Content-Type": "text/plain"},
-            timeout=18,
+            timeout=PLACE_LOOKUP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         return response.json().get("elements", [])
@@ -280,7 +281,10 @@ def get_local_place_recommendations(latitude, longitude, city_label, mode_key="m
     if latitude is None or longitude is None or not city_label:
         return _build_fallback_items(city_label or "this area", mode_key, max_items)
 
-    _, radius_m = _infer_scope(city_label)
+    scope, radius_m = _infer_scope(city_label)
+    if scope != "city":
+        return _build_fallback_items(city_label, mode_key, max_items)
+
     raw_candidates = _fetch_place_candidates(latitude, longitude, radius_m)
     mode = PLACE_MODE_CONFIG.get(mode_key, PLACE_MODE_CONFIG["mixed"])
 
