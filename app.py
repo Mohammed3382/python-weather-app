@@ -183,6 +183,10 @@ DECISION_MODE_ACTIVITY_ICON_MAP = {
     "umbrella": "\u2602\ufe0f",
     "windows": "\U0001fa9f",
     "travel": "\U0001f698",
+    "cycling": "\U0001f6b4",
+    "hiking": "\U0001f97e",
+    "picnic": "\U0001f9fa",
+    "photo": "\U0001f4f7",
 }
 SMART_DECISION_ACTIVITY_KEYS = ["walk", "run", "workout", "beach", "errands", "study", "jacket", "umbrella", "windows", "travel"]
 SMART_DECISION_FOCUS_MAP = {
@@ -198,6 +202,10 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Is now a good time for a jog?",
         "Would an outdoor run feel comfortable?",
         "Should I run later today?",
+        "Is it too hot to run outside now?",
+        "Would a 5K outside feel okay right now?",
+        "Can I do my cardio outdoors now?",
+        "Should I wait until later for a run?",
     ],
     "walk": [
         "Is it a good time to walk outside?",
@@ -205,6 +213,10 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Would a walk feel nice right now?",
         "Is it walk-friendly outside?",
         "Is it comfortable to be outside right now?",
+        "Can I walk the dog right now?",
+        "Would an evening walk feel better?",
+        "Is it nice enough for a casual stroll?",
+        "Should I go outside for a short walk now?",
     ],
     "workout": [
         "Is it a good time for an outdoor workout?",
@@ -212,6 +224,10 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Is now good for outdoor training?",
         "Would a workout outside feel okay?",
         "Should I do my workout later?",
+        "Is it okay to do HIIT outside right now?",
+        "Can I cycle outside now?",
+        "Would hiking feel comfortable right now?",
+        "Is it good weather for football outside?",
     ],
     "beach": [
         "Is today good for the beach?",
@@ -219,6 +235,10 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Should I head to the beach today?",
         "Would the beach feel nice later?",
         "Is it a good beach day today?",
+        "Would it be nice to swim today?",
+        "Is it good weather for a picnic?",
+        "Would a seaside afternoon feel comfortable?",
+        "Is it worth heading to the water later today?",
     ],
     "errands": [
         "Is it a good time to run errands?",
@@ -226,6 +246,10 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Will it be easy to get around right now?",
         "Is now a good time for outdoor chores?",
         "Should I wait before running errands?",
+        "Can I go grocery shopping now?",
+        "Is it a good time for a quick store run?",
+        "Will getting around town feel easy now?",
+        "Should I head out now or later for errands?",
     ],
     "study": [
         "Is it a good time to study outside?",
@@ -233,6 +257,10 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Would outdoor study feel comfortable?",
         "Is now good for reading outside?",
         "Should I move my study session outdoors?",
+        "Can I work outside with my laptop now?",
+        "Would it feel nice to read outdoors right now?",
+        "Is it calm enough to focus outside?",
+        "Should I take my work outside later today?",
     ],
     "jacket": [
         "Should I wear a jacket?",
@@ -240,6 +268,10 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Do I need a jacket right now?",
         "Should I bring a light layer?",
         "Will I feel cold outside?",
+        "Do I need a hoodie today?",
+        "Should I carry a coat later?",
+        "Will I need an extra layer tonight?",
+        "Should I wear outerwear before leaving?",
     ],
     "umbrella": [
         "Should I use an umbrella?",
@@ -247,6 +279,10 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Should I bring rain protection?",
         "Is it going to rain enough for an umbrella?",
         "Will I get wet outside right now?",
+        "Should I pack an umbrella for later?",
+        "Will I need rain gear today?",
+        "Do I need something for showers later on?",
+        "Should I leave with an umbrella now?",
     ],
     "windows": [
         "Is it a good time to open the windows?",
@@ -254,6 +290,10 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Should I air out the room now?",
         "Is the air okay for open windows?",
         "Should the windows stay closed right now?",
+        "Can I let fresh air in right now?",
+        "Should I keep the balcony door open?",
+        "Is it a good time to ventilate the room?",
+        "Can the house stay open to the air now?",
     ],
     "travel": [
         "Is it comfortable to drive or travel right now?",
@@ -261,7 +301,55 @@ DECISION_MODE_QUESTION_VARIANTS = {
         "Will travel feel smooth right now?",
         "Should I wait before heading out?",
         "Is it safe to drive comfortably now?",
+        "Will the roads feel easy right now?",
+        "Is it okay to commute now?",
+        "Would a road trip feel comfortable today?",
+        "Should I leave now or wait a bit before driving?",
     ],
+    "cycling": [
+        "Is it a good time to go cycling?",
+        "Can I bike outside right now?",
+        "Would a cycling ride feel good now?",
+        "Is now okay for a bike ride?",
+        "Should I cycle later today instead?",
+    ],
+    "hiking": [
+        "Is it a good time to go hiking?",
+        "Would a hike feel comfortable right now?",
+        "Can I hit the trail now?",
+        "Is the weather good enough for hiking today?",
+        "Should I wait until later for a hike?",
+    ],
+    "picnic": [
+        "Is it a good time for a picnic?",
+        "Would it be nice to sit outside for a picnic?",
+        "Is picnic weather good right now?",
+        "Should I plan a picnic later today?",
+        "Would the park feel comfortable for a picnic?",
+    ],
+    "photo": [
+        "Is it a good time for outdoor photography?",
+        "Would outdoor photos look good right now?",
+        "Is now good for taking pictures outside?",
+        "Should I wait for better outdoor photo conditions?",
+        "Is the light good enough for photography now?",
+    ],
+}
+DECISION_MODE_KEYWORD_HINTS = {
+    "run": {"run", "jog", "5k", "cardio", "sprint"},
+    "walk": {"walk", "stroll", "outside", "dog", "fresh air"},
+    "workout": {"workout", "exercise", "training", "cycle", "cycling", "bike", "biking", "hike", "hiking", "football", "soccer", "tennis"},
+    "beach": {"beach", "swim", "swimming", "picnic", "waterfront", "seaside", "shore", "sunbathe"},
+    "errands": {"errands", "groceries", "grocery", "shopping", "chores", "pickup", "store", "town"},
+    "study": {"study", "read", "reading", "laptop", "work outside", "focus", "outside work"},
+    "jacket": {"wear", "jacket", "coat", "hoodie", "layer", "layers", "sweater", "cold"},
+    "umbrella": {"umbrella", "rain", "rainy", "showers", "storm", "wet", "rain gear", "raincoat"},
+    "windows": {"window", "windows", "air out", "fresh air", "ventilate", "ventilation", "balcony door"},
+    "travel": {"drive", "driving", "travel", "commute", "roads", "road", "trip", "traffic", "visibility"},
+    "cycling": {"cycle", "cycling", "bike", "biking", "ride"},
+    "hiking": {"hike", "hiking", "trail", "trek"},
+    "picnic": {"picnic", "blanket", "park lunch", "outdoor lunch"},
+    "photo": {"photo", "photos", "photography", "camera", "pictures", "sunset photos"},
 }
 PERSONALIZATION_PROMPT_PENDING = "pending"
 PERSONALIZATION_PROMPT_SAVED = "saved"
@@ -2019,6 +2107,26 @@ def build_decision_question_suggestion_entries():
     return entries
 
 
+def score_decision_activity_keywords(normalized_query, query_tokens):
+    scores = {}
+    for activity_key, hints in DECISION_MODE_KEYWORD_HINTS.items():
+        hint_score = 0
+        for hint in hints:
+            normalized_hint = normalize_decision_question(hint)
+            if not normalized_hint:
+                continue
+            if " " in normalized_hint:
+                if normalized_hint in normalized_query:
+                    hint_score += 16 + (len(normalized_hint.split()) * 2)
+            elif normalized_hint in query_tokens:
+                hint_score += 12
+            elif normalized_hint in normalized_query:
+                hint_score += 7
+        if hint_score:
+            scores[activity_key] = hint_score
+    return scores
+
+
 def resolve_decision_activity_from_query(query, fallback_activity=None):
     normalized_query = normalize_decision_question(query)
     if not normalized_query:
@@ -2026,6 +2134,7 @@ def resolve_decision_activity_from_query(query, fallback_activity=None):
         return fallback_key, DECISION_MODE_ACTIVITY_QUESTION_MAP.get(fallback_key, "")
 
     query_tokens = set(normalized_query.split())
+    keyword_scores = score_decision_activity_keywords(normalized_query, query_tokens)
     best_entry = None
     best_score = -1
 
@@ -2034,6 +2143,7 @@ def resolve_decision_activity_from_query(query, fallback_activity=None):
         label_tokens = set(normalized_label.split())
         overlap_count = len(query_tokens & label_tokens)
         score = overlap_count * 6
+        score += keyword_scores.get(entry["activity_key"], 0)
         if normalized_query == normalized_label:
             score += 120
         elif normalized_query in normalized_label or normalized_label in normalized_query:
@@ -2091,6 +2201,55 @@ def handle_decision_mode_search_event(search_event):
     st.session_state["decision_mode_activity"] = selected_activity
     st.session_state["decision_mode_selected_question"] = selected_question
     return selected_activity
+
+
+def prime_map_dialog_state(weather_to_show):
+    st.session_state["map_dialog_query"] = weather_to_show.get("resolved_city") or ""
+    st.session_state["map_dialog_selection"] = build_weather_search_entry(weather_to_show, meta="Current map focus")
+    st.session_state["map_dialog_search_event_id"] = ""
+    st.session_state["map_dialog_weather"] = weather_to_show
+    st.session_state["map_dialog_error"] = ""
+
+
+def handle_map_dialog_search_event(search_event, fallback_weather=None):
+    if not isinstance(search_event, dict):
+        return None
+
+    event_id = str(search_event.get("event_id") or "").strip()
+    if not event_id:
+        return None
+
+    if st.session_state.get("map_dialog_search_event_id") == event_id:
+        return st.session_state.get("map_dialog_weather") or fallback_weather
+
+    st.session_state["map_dialog_search_event_id"] = event_id
+    action = str(search_event.get("action") or "").strip().lower()
+    payload = search_event.get("payload") or {}
+
+    if action == "draft":
+        st.session_state["map_dialog_query"] = get_search_display_value(payload)
+        return st.session_state.get("map_dialog_weather") or fallback_weather
+
+    if action != "search":
+        return st.session_state.get("map_dialog_weather") or fallback_weather
+
+    search_value = payload if payload else st.session_state.get("map_dialog_query", "")
+    search_query = get_search_display_value(search_value)
+    if not search_query:
+        return st.session_state.get("map_dialog_weather") or fallback_weather
+
+    try:
+        with st.spinner("Updating map focus..."):
+            weather = get_weather(search_value)
+        st.session_state["map_dialog_query"] = weather.get("resolved_city") or search_query
+        st.session_state["map_dialog_selection"] = build_weather_search_entry(weather, meta="Recent search")
+        st.session_state["map_dialog_weather"] = weather
+        st.session_state["map_dialog_error"] = ""
+        remember_recent_search(weather)
+        return weather
+    except WeatherError as exc:
+        st.session_state["map_dialog_error"] = str(exc)
+        return st.session_state.get("map_dialog_weather") or fallback_weather
 
 
 def get_trip_planner_extra_city_keys(slot_index):
@@ -4200,6 +4359,11 @@ def initialize_session_state():
         "trip_planner_start_date": get_default_trip_planner_dates()[0],
         "trip_planner_end_date": get_default_trip_planner_dates()[1],
         "trip_planner_error": "",
+        "map_dialog_query": "",
+        "map_dialog_selection": None,
+        "map_dialog_search_event_id": "",
+        "map_dialog_weather": None,
+        "map_dialog_error": "",
         "preferences_loaded": False,
         "personal_activity_focus": PERSONAL_ACTIVITY_OPTIONS[0],
         "personal_preferred_time": PERSONAL_TIME_OPTIONS[0],
@@ -5274,24 +5438,30 @@ def render_decision_mode_styles():
             .decision-mode-metrics {
                 margin-top: 0.82rem;
             }
-            .decision-mode-search-card {
-                margin-bottom: 0.52rem;
-                padding-bottom: 0.08rem;
+            .decision-mode-search-copy {
+                margin-bottom: 0.16rem;
             }
-            .decision-mode-search-card .intel-card-body {
-                max-width: none;
+            .decision-mode-search-title {
+                margin-top: 0.12rem;
+                font-size: 1.36rem;
+                font-weight: 700;
+                line-height: 1.15;
+                color: #f8fbff;
             }
-            .decision-mode-search-note {
-                margin-top: 0.44rem;
-                font-size: 0.8rem;
-                color: rgba(236, 247, 255, 0.68);
+            .decision-mode-search-body {
+                margin-top: 0.14rem;
+                font-size: 0.88rem;
+                color: rgba(236, 247, 255, 0.78);
             }
             div[data-testid="stVerticalBlock"] > div:has(.decision-mode-search-anchor) + div[data-testid="stElementContainer"] {
-                margin-top: -0.08rem;
-                margin-bottom: 0;
+                margin-top: -0.2rem;
+                margin-bottom: 0.14rem;
             }
             div[data-testid="stVerticalBlock"] > div:has(.decision-mode-search-anchor) + div[data-testid="stElementContainer"] iframe {
                 min-height: 76px;
+            }
+            div[data-testid="stVerticalBlock"] > div:has(.decision-mode-search-anchor) + div[data-testid="stElementContainer"] + div[data-testid="stElementContainer"] {
+                margin-top: -0.12rem;
             }
             @media (max-width: 900px) {
                 .decision-mode-score {
@@ -5299,6 +5469,9 @@ def render_decision_mode_styles():
                 }
                 div[data-testid="stVerticalBlock"] > div:has(.decision-mode-search-anchor) + div[data-testid="stElementContainer"] iframe {
                     min-height: 72px;
+                }
+                div[data-testid="stVerticalBlock"] > div:has(.decision-mode-search-anchor) + div[data-testid="stElementContainer"] {
+                    margin-bottom: 0.1rem;
                 }
             }
             </style>
@@ -5361,183 +5534,9 @@ def build_decision_mode_result_card(decision_result):
         """
     ).strip()
 
-    return dedent(
-        f"""
-        <style>
-        .decision-mode-shell {{
-            margin-bottom: 1rem;
-        }}
-        .decision-mode-card {{
-            position: relative;
-            overflow: hidden;
-        }}
-        .decision-mode-card::before {{
-            content: "";
-            position: absolute;
-            inset: 0;
-            background:
-                radial-gradient(circle at top right, rgba(255,255,255,0.12), transparent 34%),
-                linear-gradient(135deg, rgba(214, 239, 250, 0.07), transparent 52%);
-            pointer-events: none;
-        }}
-        .decision-mode-card > * {{
-            position: relative;
-            z-index: 1;
-        }}
-        .decision-mode-header {{
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 1rem;
-            flex-wrap: wrap;
-        }}
-        .decision-mode-header-copy {{
-            flex: 1 1 20rem;
-            min-width: 0;
-        }}
-        .decision-mode-title {{
-            margin-top: 0.38rem;
-            font-size: 1.35rem;
-            font-weight: 700;
-            line-height: 1.24;
-            color: #f8fbff;
-        }}
-        .decision-mode-meta {{
-            display: flex;
-            align-items: center;
-            gap: 0.65rem;
-            margin-top: 0.9rem;
-            flex-wrap: wrap;
-        }}
-        .decision-mode-time {{
-            font-size: 0.8rem;
-            letter-spacing: 0.04em;
-            color: rgba(236, 247, 255, 0.72);
-        }}
-        .decision-mode-score {{
-            min-width: 9.4rem;
-            padding: 0.95rem 1rem 1rem;
-            border-radius: 24px;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.1);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-        }}
-        .decision-mode-score-label {{
-            font-size: 0.72rem;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            opacity: 0.66;
-        }}
-        .decision-mode-score-value {{
-            margin-top: 0.42rem;
-            font-size: 2.35rem;
-            line-height: 1;
-            font-weight: 800;
-            color: #f9fbff;
-        }}
-        .decision-mode-score-value span {{
-            margin-left: 0.16rem;
-            font-size: 0.9rem;
-            opacity: 0.72;
-            font-weight: 600;
-        }}
-        .decision-mode-badge {{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 2rem;
-            padding: 0.38rem 0.84rem;
-            border-radius: 999px;
-            border: 1px solid rgba(255,255,255,0.12);
-            font-size: 0.78rem;
-            font-weight: 700;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }}
-        .decision-mode-badge--positive {{
-            background: rgba(151, 236, 196, 0.12);
-            border-color: rgba(151, 236, 196, 0.22);
-            color: #cffcea;
-        }}
-        .decision-mode-badge--neutral {{
-            background: rgba(255, 230, 152, 0.12);
-            border-color: rgba(255, 230, 152, 0.2);
-            color: #fff2be;
-        }}
-        .decision-mode-badge--caution {{
-            background: rgba(255, 196, 132, 0.12);
-            border-color: rgba(255, 196, 132, 0.24);
-            color: #ffd9ad;
-        }}
-        .decision-mode-badge--danger {{
-            background: rgba(255, 141, 141, 0.12);
-            border-color: rgba(255, 141, 141, 0.24);
-            color: #ffd0d0;
-        }}
-        .decision-mode-best-time {{
-            margin-top: 0.95rem;
-            padding: 0.92rem 1rem;
-            border-radius: 20px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.09);
-            box-shadow: inset 3px 0 0 rgba(214, 239, 250, 0.22);
-        }}
-        .decision-mode-best-time-label {{
-            font-size: 0.72rem;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            opacity: 0.66;
-        }}
-        .decision-mode-best-time-body {{
-            margin-top: 0.34rem;
-            font-size: 0.92rem;
-            line-height: 1.65;
-            color: rgba(246, 251, 255, 0.94);
-        }}
-        .decision-mode-helper-card {{
-            margin-bottom: 0.85rem;
-        }}
-        .decision-mode-helper-card .intel-card-body {{
-            max-width: none;
-        }}
-        @media (max-width: 900px) {{
-            .decision-mode-score {{
-                width: 100%;
-            }}
-        }}
-        </style>
-        <div class="decision-mode-shell">
-            <div class="intel-card intel-card--insight-readable decision-mode-card">
-                <div class="decision-mode-header">
-                    <div class="decision-mode-header-copy">
-                        <div class="intel-card-kicker">Decision Mode</div>
-                        <div class="decision-mode-title">{escape(activity_icon)} {escape(str(decision_result["question"]))}</div>
-                        <div class="decision-mode-meta">
-                            <span class="decision-mode-badge decision-mode-badge--{escape(badge_variant)}">{escape(str(decision_result["label"]))}</span>
-                            <span class="decision-mode-time">Local time {escape(str(decision_result["local_time_label"]))}</span>
-                        </div>
-                    </div>
-                    <div class="decision-mode-score">
-                        <div class="decision-mode-score-label">Decision Score</div>
-                        <div class="decision-mode-score-value">{escape(str(decision_result["score"]))}<span>/100</span></div>
-                    </div>
-                </div>
-                <div class="intel-card-body">{escape(str(decision_result["explanation"]))}</div>
-                {best_time_html}
-                <div class="intel-support-grid intel-support-grid--insight-readable">{metrics_html}</div>
-            </div>
-        </div>
-        """
-    ).strip()
-
 
 def render_decision_mode_section(weather_to_show, use_fahrenheit, speed_symbol):
     render_decision_mode_styles()
-    render_insight_section_header(
-        "Decision Mode",
-        "Direct answers from current conditions and the next few hours.",
-        "Smart Assistant",
-    )
 
     options = [item["key"] for item in DECISION_MODE_ACTIVITY_OPTIONS]
     selected_activity = st.session_state.get("decision_mode_activity", DECISION_MODE_DEFAULT_ACTIVITY)
@@ -5545,56 +5544,50 @@ def render_decision_mode_section(weather_to_show, use_fahrenheit, speed_symbol):
         selected_activity = DECISION_MODE_DEFAULT_ACTIVITY
         st.session_state["decision_mode_activity"] = selected_activity
 
-    decision_columns = st.columns([1.02, 1.55], gap="medium")
-    with decision_columns[0]:
-        st.markdown(
-            dedent(
-                """
-                <div class="intel-card intel-card--insight-readable decision-mode-search-card">
-                    <div class="intel-card-kicker">Smart Decision Assistant</div>
-                    <div class="intel-card-title">Ask a weather question</div>
-                    <div class="intel-card-body">Type a practical question.</div>
-                </div>
-                """
-            ).strip(),
-            unsafe_allow_html=True,
-        )
-        st.markdown("<div class='decision-mode-search-anchor'></div>", unsafe_allow_html=True)
-        decision_search_event = SEARCH_COMPONENT(
-            initial_value=st.session_state.get("decision_mode_query", ""),
-            recent_searches=build_decision_question_suggestion_entries(),
-            placeholder="Ask about running, jackets, umbrellas, beach plans...",
-            enable_geolocation=False,
-            emit_drafts=True,
-            disable_remote_search=True,
-            recent_limit=10,
-            compact=True,
-            variant="decision",
-            empty_message="No match yet. Try run now, wear today, umbrella, beach, or open windows.",
-            key="decision_mode_question_search_component",
-            default=None,
-        )
-        updated_activity = handle_decision_mode_search_event(decision_search_event)
-        if updated_activity in options:
-            selected_activity = updated_activity
-        st.markdown(
-            "<div class='decision-mode-search-note'>Try: wear today, run now, beach later, umbrella, open windows.</div>",
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        dedent(
+            """
+            <div class="decision-mode-search-copy">
+                <div class="decision-mode-search-title">Ask another question</div>
+                <div class="decision-mode-search-body">Type a practical question.</div>
+            </div>
+            """
+        ).strip(),
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='decision-mode-search-anchor'></div>", unsafe_allow_html=True)
+    decision_search_event = SEARCH_COMPONENT(
+        initial_value=st.session_state.get("decision_mode_query", ""),
+        recent_searches=build_decision_question_suggestion_entries(),
+        placeholder="Ask about running, jackets, umbrellas, beach plans...",
+        enable_geolocation=False,
+        emit_drafts=True,
+        disable_remote_search=True,
+        recent_limit=14,
+        compact=True,
+        variant="decision",
+        empty_message="Try run, walk, hike, bike, wear today, umbrella, picnic, beach, commute, or open windows.",
+        auto_select_on_focus=False,
+        open_on_blank_focus=False,
+        key="decision_mode_question_search_component",
+        default=None,
+    )
+    updated_activity = handle_decision_mode_search_event(decision_search_event)
+    if updated_activity in options:
+        selected_activity = updated_activity
 
-    with decision_columns[1]:
-        decision_result = evaluate_decision(
-            selected_activity,
-            weather_to_show,
-            use_fahrenheit=use_fahrenheit,
-            speed_unit=speed_symbol,
-            personalization=get_personalization_profile(),
-        )
-        decision_result["question"] = st.session_state.get(
-            "decision_mode_selected_question",
-            DECISION_MODE_ACTIVITY_QUESTION_MAP.get(selected_activity, ""),
-        )
-        st.markdown(build_decision_mode_result_card(decision_result), unsafe_allow_html=True)
+    decision_result = evaluate_decision(
+        selected_activity,
+        weather_to_show,
+        use_fahrenheit=use_fahrenheit,
+        speed_unit=speed_symbol,
+        personalization=get_personalization_profile(),
+    )
+    decision_result["question"] = st.session_state.get(
+        "decision_mode_selected_question",
+        DECISION_MODE_ACTIVITY_QUESTION_MAP.get(selected_activity, ""),
+    )
+    st.markdown(build_decision_mode_result_card(decision_result), unsafe_allow_html=True)
 
 
 def build_decision_summary_text(decision_result, max_length=116, include_best_time=False):
@@ -5704,6 +5697,7 @@ def build_decision_insight_cards(decision_support, personalization, time_context
     personalization = get_personalization_profile(personalization)
     time_context = time_context or {}
     focus_result = decision_support.get("focus")
+    best_outdoor_result = decision_support.get("best_outdoor")
     wear_result = decision_support.get("wear")
     watch_result = decision_support.get("watch")
     cards = []
@@ -5737,7 +5731,17 @@ def build_decision_insight_cards(decision_support, personalization, time_context
             }
         )
 
-    return cards[:2]
+    if best_outdoor_result and best_outdoor_result is not focus_result:
+        cards.append(
+            {
+                "eyebrow": "Best Window",
+                "title": f"{DECISION_MODE_ACTIVITY_LABEL_MAP.get(best_outdoor_result.get('activity_key'), 'Outdoor plan')}: {best_outdoor_result['label']}",
+                "body": build_decision_summary_text(best_outdoor_result, max_length=96, include_best_time=True),
+                "icon": DECISION_MODE_ACTIVITY_ICON_MAP.get(best_outdoor_result.get("activity_key"), "\U0001f31f"),
+            }
+        )
+
+    return cards[:3]
 
 
 def build_insights_quick_read_items(intelligence_payload):
@@ -6168,12 +6172,245 @@ def render_activities_tab(weather_to_show, intelligence_payload, temp_symbol, sp
     render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit)
 
 
+def render_map_dialog_panel(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    inject_dialog_surface("skyline-map-dialog-anchor", "min(95vw, 1540px)")
+    st.markdown(
+        dedent(
+            """
+            <style>
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) > div[data-testid="stVerticalBlock"] {
+                gap: 0.72rem;
+                padding-bottom: 1.04rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-shell {
+                padding-top: 0.04rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero {
+                display: grid;
+                grid-template-columns: minmax(0, 1.16fr) minmax(300px, 0.84fr);
+                gap: 0.76rem;
+                align-items: stretch;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero-main,
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero-side,
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-story,
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-shell {
+                border-radius: 22px;
+                background: rgba(255,255,255,0.065);
+                border: 1px solid rgba(255,255,255,0.08);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero-main,
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero-side {
+                padding: 0.95rem 1rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-title {
+                margin-top: 0.22rem;
+                font-size: clamp(1.7rem, 2.6vw, 2.35rem);
+                font-weight: 800;
+                line-height: 1.02;
+                color: #f8fbff;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-body {
+                margin-top: 0.42rem;
+                max-width: 62ch;
+                font-size: 0.92rem;
+                line-height: 1.58;
+                color: rgba(236, 247, 255, 0.82);
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-condition {
+                margin-top: 0.42rem;
+                font-size: 0.98rem;
+                color: rgba(245, 251, 255, 0.92);
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-range {
+                margin-top: 0.42rem;
+                font-size: 0.92rem;
+                color: rgba(236, 247, 255, 0.82);
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.55rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat {
+                padding: 0.72rem 0.78rem;
+                border-radius: 18px;
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.08);
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat-label {
+                font-size: 0.72rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                opacity: 0.68;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat-value {
+                margin-top: 0.24rem;
+                font-size: 0.96rem;
+                font-weight: 700;
+                color: #f8fbff;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-story {
+                margin-top: 0.78rem;
+                padding: 0.86rem 0.96rem;
+                font-size: 0.92rem;
+                line-height: 1.56;
+                color: rgba(242, 248, 255, 0.9);
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-shell {
+                margin-top: 0.76rem;
+                padding: 0.88rem 0.96rem 0.94rem;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-body {
+                margin-top: 0.22rem;
+                font-size: 0.88rem;
+                color: rgba(236, 247, 255, 0.78);
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-anchor + div[data-testid="stElementContainer"] {
+                margin-top: -0.44rem;
+                margin-bottom: 0;
+            }
+            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-anchor + div[data-testid="stElementContainer"] iframe {
+                min-height: 82px;
+            }
+            @media (max-width: 1120px) {
+                div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero {
+                    grid-template-columns: 1fr;
+                }
+            }
+            @media (max-width: 720px) {
+                div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+            </style>
+            <div class="skyline-map-dialog-anchor" aria-hidden="true"></div>
+            """
+        ).strip(),
+        unsafe_allow_html=True,
+    )
+
+    selected_weather = st.session_state.get("map_dialog_weather") or weather_to_show
+    search_event = SEARCH_COMPONENT(
+        initial_value=st.session_state.get("map_dialog_query", selected_weather.get("resolved_city", "")),
+        recent_searches=get_search_component_recent_entries(),
+        placeholder="Search any city to refocus the map",
+        enable_geolocation=False,
+        emit_drafts=True,
+        compact=True,
+        key="map_dialog_search_component",
+        default=None,
+    )
+    selected_weather = handle_map_dialog_search_event(search_event, fallback_weather=selected_weather) or selected_weather
+
+    current = (selected_weather or {}).get("current") or {}
+    forecast = (selected_weather or {}).get("forecast") or []
+    today = forecast[0] if forecast else {}
+    location = (selected_weather or {}).get("location") or {}
+    current_temp = format_temperature_text(current.get("temperature", 0), temp_symbol, use_fahrenheit)
+    day_high = format_temperature_text(today.get("max", 0), temp_symbol, use_fahrenheit)
+    day_low = format_temperature_text(today.get("min", 0), temp_symbol, use_fahrenheit)
+    condition_icon = get_condition_icon(current.get("condition") or "Cloudy")
+    support_items = [
+        ("Current", current_temp),
+        ("Rain chance", f"{today.get('rain_chance', 0)}%"),
+        ("Wind", format_wind_text(current.get("wind", 0), speed_symbol)),
+        ("Visibility", f"{current.get('visibility') if current.get('visibility') not in (None, '') else '--'} km"),
+    ]
+    support_html = "".join(
+        dedent(
+            f"""
+            <div class="skyline-map-dialog-stat">
+                <div class="skyline-map-dialog-stat-label">{escape(label)}</div>
+                <div class="skyline-map-dialog-stat-value">{escape(value)}</div>
+            </div>
+            """
+        ).strip()
+        for label, value in support_items
+    )
+    story_copy = (
+        f"{current.get('condition') or 'Current'} conditions over {selected_weather.get('resolved_city') or 'this location'} "
+        f"with a {today.get('rain_chance', 0)}% rain chance, {format_wind_text(current.get('wind', 0), speed_symbol)} winds, "
+        f"and visibility near {current.get('visibility') if current.get('visibility') not in (None, '') else '--'} km."
+    )
+
+    st.markdown(
+        dedent(
+            """
+            <div class="skyline-map-dialog-shell">
+                <div class="skyline-map-dialog-hero">
+                    <div class="skyline-map-dialog-hero-main">
+                        <div class="intel-card-kicker">Expanded Weather Map</div>
+                        <div class="skyline-map-dialog-title">__CITY_TITLE__</div>
+                        <div class="skyline-map-dialog-condition">__CONDITION_LINE__</div>
+                        <div class="skyline-map-dialog-range">Low __LOW_VALUE__ | High __HIGH_VALUE__</div>
+                    </div>
+                    <div class="skyline-map-dialog-hero-side">
+                        <div class="intel-card-kicker">Map Snapshot</div>
+                        <div class="skyline-map-dialog-stat-grid">
+                            __SUPPORT_HTML__
+                        </div>
+                    </div>
+                </div>
+                <div class="skyline-map-dialog-story">__STORY_COPY__</div>
+                <div class="skyline-map-dialog-search-shell">
+                    <div class="intel-card-kicker">Search Another Location</div>
+                    <div class="skyline-map-dialog-search-body">Refocus the map, then use the larger canvas and live layers underneath for a clearer weather read.</div>
+                </div>
+            </div>
+            """
+        )
+        .replace("__CITY_TITLE__", escape(selected_weather.get("resolved_city") or "Selected location"))
+        .replace("__CONDITION_LINE__", escape(f"{condition_icon} {current.get('condition') or 'Current conditions'}"))
+        .replace("__LOW_VALUE__", escape(day_low))
+        .replace("__HIGH_VALUE__", escape(day_high))
+        .replace("__SUPPORT_HTML__", support_html)
+        .replace("__STORY_COPY__", escape(story_copy))
+        .strip(),
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='skyline-map-dialog-search-anchor'></div>", unsafe_allow_html=True)
+
+    map_dialog_error = str(st.session_state.get("map_dialog_error") or "").strip()
+    if map_dialog_error:
+        st.warning(map_dialog_error)
+
+    render_live_weather_map(
+        selected_weather,
+        temp_symbol,
+        speed_symbol,
+        use_fahrenheit,
+        show_controls=True,
+        expanded=True,
+        preferred_layer=st.session_state.get("weather_map_layer", MAP_LAYER_OPTIONS[0]),
+        dialog_mode=True,
+    )
+
+
+def open_map_dialog(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
+    if hasattr(st, "dialog"):
+        @st.dialog("Expanded Weather Map")
+        def map_dialog():
+            render_map_dialog_panel(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit)
+
+        map_dialog()
+    else:
+        with st.popover("Expanded Weather Map", use_container_width=True):
+            render_map_dialog_panel(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit)
+
+
 def render_map_tab(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
     render_insight_section_header(
         "Weather Map",
         "Switch between multiple live layers here, including clouds, temperature, rain, wind, and additional map views.",
         "Live Layers",
     )
+    map_action_columns = st.columns([5.6, 1.2], gap="small")
+    with map_action_columns[1]:
+        if st.button("\u2922 Expand", key="open_map_dialog_button", type="secondary", use_container_width=True):
+            prime_map_dialog_state(weather_to_show)
+            open_map_dialog(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit)
     render_live_weather_map(
         weather_to_show,
         temp_symbol,

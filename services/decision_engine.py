@@ -96,6 +96,42 @@ DECISION_ACTIVITY_OPTIONS = [
         "metric_keys": ["visibility", "rain_chance", "wind", "condition"],
         "label_mode": "standard",
     },
+    {
+        "key": "cycling",
+        "label": "Go cycling",
+        "question": "Is it a good time to go cycling?",
+        "noun": "cycling",
+        "block_hours": 2,
+        "metric_keys": ["feels_like", "wind", "rain_chance", "uv_index"],
+        "label_mode": "standard",
+    },
+    {
+        "key": "hiking",
+        "label": "Go hiking",
+        "question": "Is it a good time to go hiking?",
+        "noun": "hiking",
+        "block_hours": 3,
+        "metric_keys": ["temperature", "wind", "rain_chance", "uv_index"],
+        "label_mode": "standard",
+    },
+    {
+        "key": "picnic",
+        "label": "Have a picnic",
+        "question": "Is it a good time for a picnic?",
+        "noun": "a picnic",
+        "block_hours": 3,
+        "metric_keys": ["temperature", "rain_chance", "wind", "cloud_cover"],
+        "label_mode": "standard",
+    },
+    {
+        "key": "photo",
+        "label": "Outdoor photography",
+        "question": "Is it a good time for outdoor photography?",
+        "noun": "outdoor photography",
+        "block_hours": 2,
+        "metric_keys": ["visibility", "cloud_cover", "rain_chance", "local_time"],
+        "label_mode": "standard",
+    },
 ]
 
 DECISION_ACTIVITY_MAP = {item["key"]: item for item in DECISION_ACTIVITY_OPTIONS}
@@ -245,6 +281,8 @@ def _build_metric_item(metric_key, context):
         return {"label": "UV Index", "value": f'{round(context["uv_index"], 1)}'}
     if metric_key == "visibility":
         return {"label": "Visibility", "value": f'{round(context["visibility"], 1)} km'}
+    if metric_key == "cloud_cover":
+        return {"label": "Cloud Cover", "value": f'{context["cloud_cover"]}%'}
     if metric_key == "condition":
         return {"label": "Condition", "value": context["condition"]}
     if metric_key == "local_time":
@@ -264,6 +302,10 @@ def _score_activity(activity_key, context):
         "umbrella": _score_umbrella,
         "windows": _score_windows,
         "travel": _score_travel,
+        "cycling": _score_cycling,
+        "hiking": _score_hiking,
+        "picnic": _score_picnic,
+        "photo": _score_photo,
     }
     return scorers[activity_key](context)
 
@@ -547,6 +589,115 @@ def _score_travel(context):
         penalty = 18
         score -= penalty
         _record_factor(factors, penalty, "negative", "fog softens road visibility")
+    return {"score": score, "factors": factors}
+
+
+def _score_cycling(context):
+    score = 100.0
+    factors = []
+    score = _apply_temperature(
+        score,
+        factors,
+        context,
+        source_key="feels_like",
+        label="feels-like temperature",
+        ideal_range=(12, 24),
+        hard_range=(5, 34),
+        warm_scale=2.9,
+        cold_scale=2.7,
+    )
+    score = _apply_humidity(score, factors, context, comfortable_max=62, caution_max=75, weight=0.42)
+    score = _apply_rain(score, factors, context, low_risk=10, caution_risk=25, weight=0.45, storm_penalty=28)
+    score = _apply_wind(score, factors, context, calm_max=14, caution_max=24, weight=1.25)
+    score = _apply_uv(score, factors, context, caution_uv=6, severe_uv=8, weight=3.9)
+    score = _apply_hour_preference(
+        score,
+        factors,
+        context,
+        preferred_windows=[(5, 10), (17, 21)],
+        late_penalty=(11, 16, 9),
+        positive_text="the timing supports cycling more cleanly",
+        caution_text="midday timing adds extra heat and glare",
+    )
+    return {"score": score, "factors": factors}
+
+
+def _score_hiking(context):
+    score = 100.0
+    factors = []
+    score = _apply_temperature(
+        score,
+        factors,
+        context,
+        source_key="temperature",
+        label="temperature",
+        ideal_range=(14, 26),
+        hard_range=(6, 34),
+        warm_scale=2.5,
+        cold_scale=2.3,
+    )
+    score = _apply_rain(score, factors, context, low_risk=15, caution_risk=35, weight=0.34, storm_penalty=24)
+    score = _apply_wind(score, factors, context, calm_max=16, caution_max=28, weight=0.98)
+    score = _apply_humidity(score, factors, context, comfortable_max=65, caution_max=78, weight=0.28)
+    score = _apply_uv(score, factors, context, caution_uv=6.5, severe_uv=8.5, weight=3.1)
+    score = _apply_hour_preference(
+        score,
+        factors,
+        context,
+        preferred_windows=[(6, 10), (16, 20)],
+        late_penalty=(11, 15, 7),
+        positive_text="the timing is better for a longer outdoor block",
+        caution_text="midday hiking adds more heat pressure",
+    )
+    return {"score": score, "factors": factors}
+
+
+def _score_picnic(context):
+    score = 100.0
+    factors = []
+    score = _apply_temperature(
+        score,
+        factors,
+        context,
+        source_key="temperature",
+        label="temperature",
+        ideal_range=(20, 29),
+        hard_range=(12, 35),
+        warm_scale=2.4,
+        cold_scale=2.6,
+    )
+    score = _apply_rain(score, factors, context, low_risk=12, caution_risk=28, weight=0.42, storm_penalty=30)
+    score = _apply_wind(score, factors, context, calm_max=14, caution_max=24, weight=0.88)
+    score = _apply_humidity(score, factors, context, comfortable_max=65, caution_max=80, weight=0.22)
+    score = _apply_cloud_cover(score, factors, context, ideal_range=(15, 55), caution_max=82, weight=0.24, allow_bonus=True)
+    score = _apply_hour_preference(
+        score,
+        factors,
+        context,
+        preferred_windows=[(9, 18)],
+        late_penalty=(19, 23, 8),
+        positive_text="daylight timing lines up well for a picnic",
+        caution_text="later timing cuts into picnic comfort",
+    )
+    return {"score": score, "factors": factors}
+
+
+def _score_photo(context):
+    score = 100.0
+    factors = []
+    score = _apply_visibility(score, factors, context, clear_min=9, caution_min=5.5, weight=7.2)
+    score = _apply_cloud_cover(score, factors, context, ideal_range=(20, 70), caution_max=92, weight=0.16, allow_bonus=True)
+    score = _apply_rain(score, factors, context, low_risk=10, caution_risk=25, weight=0.36, storm_penalty=26)
+    score = _apply_wind(score, factors, context, calm_max=18, caution_max=30, weight=0.46)
+    score = _apply_hour_preference(
+        score,
+        factors,
+        context,
+        preferred_windows=[(6, 9), (16, 19)],
+        late_penalty=(11, 15, 4),
+        positive_text="the light is more favorable for outdoor photos",
+        caution_text="flat midday light makes outdoor shots less dynamic",
+    )
     return {"score": score, "factors": factors}
 
 

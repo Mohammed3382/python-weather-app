@@ -337,6 +337,8 @@
         return isLocalOnlyMode() ? 8 : 4;
       };
 
+      const shouldOpenOnBlankFocus = () => args.open_on_blank_focus !== false;
+
       const ensurePortal = () => {
         portal = hostDoc.getElementById(portalId);
         if (!portal) {
@@ -791,6 +793,10 @@
               label: nextValue,
             });
           }
+          if (!nextValue.trim() && !shouldOpenOnBlankFocus()) {
+            hideResults();
+            return;
+          }
           searchCities(nextValue);
         }, 90);
       });
@@ -806,7 +812,11 @@
             }
           });
         }
-        searchCities(input.value);
+        if (!input.value.trim() && !shouldOpenOnBlankFocus()) {
+          hideResults();
+        } else {
+          searchCities(input.value);
+        }
         updatePortalPosition();
         setFrameHeight(104);
       });

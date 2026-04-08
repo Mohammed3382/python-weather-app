@@ -308,6 +308,58 @@ SCENE_PHASE_IMAGE_POOL_MAP = {
             "images/web/overcast_dawn_01.jpg",
         ],
     },
+    "morning": {
+        "clear": [
+            "images/web/clear_cumulus_03.jpg",
+            "images/morning.png",
+        ],
+        "partly-cloudy": [
+            "images/web/partly_sunlit_01.jpg",
+            "images/web/sunbreak_02.jpg",
+            "images/morning.png",
+        ],
+        "mostly-cloudy": [
+            "images/web/overcast_dawn_01.jpg",
+            "images/web/overcast_layers_01.jpg",
+        ],
+        "mist": [
+            "images/web/overcast_dawn_01.jpg",
+            "images/variants/foggy_silver.jpg",
+            "images/morning.png",
+        ],
+        "fog-veil": [
+            "images/web/overcast_dense_01.jpg",
+            "images/variants/foggy_silver.jpg",
+        ],
+    },
+    "day": {
+        "clear": [
+            "images/web/clear_cumulus_01.jpg",
+            "images/web/clear_cumulus_02.jpg",
+            "images/variants/sunny_soft.jpg",
+        ],
+        "partly-cloudy": [
+            "images/web/partly_soft_01.jpg",
+            "images/web/partly_sunlit_01.jpg",
+            "images/web/sunbreak_01.jpg",
+        ],
+        "mostly-cloudy": [
+            "images/web/overcast_layers_01.jpg",
+            "images/web/overcast_breaks_01.jpg",
+        ],
+        "overcast": [
+            "images/web/overcast_dense_01.jpg",
+            "images/web/overcast_dark_02.jpg",
+        ],
+        "showers": [
+            "images/web/rain_buildup_01.jpg",
+            "images/web/rain_buildup_02.jpg",
+        ],
+        "rain-clouds": [
+            "images/web/rain_buildup_02.jpg",
+            "images/web/storm_mass_02.jpg",
+        ],
+    },
     "twilight": {
         "clear": [
             "images/web/twilight_pastel_01.jpg",
@@ -2779,16 +2831,17 @@ def apply_theme(background_source):
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            min-height: 2rem;
-            padding: 0.48rem 0.86rem;
-            border-radius: 14px;
+            min-height: 2.42rem;
+            padding: 0.56rem 1rem;
+            border-radius: 16px;
             border: 1px solid rgba(255,255,255,0.14);
             background: rgba(255,255,255,0.06);
             color: rgba(243, 249, 255, 0.92) !important;
-            text-decoration: none;
-            font-size: 0.76rem;
-            font-weight: 700;
-            letter-spacing: 0.02em;
+            text-decoration: none !important;
+            font-size: 0.9rem;
+            font-weight: 650;
+            letter-spacing: 0.01em;
+            line-height: 1;
             box-shadow: none;
             transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
             white-space: nowrap;
@@ -3081,12 +3134,15 @@ def apply_theme(background_source):
             box-shadow: none;
         }}
         div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
-            margin-top: -0.78rem;
-            margin-bottom: -0.08rem;
+            margin-top: -1.58rem;
+            margin-bottom: -0.12rem;
         }}
         div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] .stButton {{
             margin-top: 0;
             margin-bottom: 0;
+        }}
+        div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:has(+ div:has(.trip-planner-controls-anchor)) {{
+            margin-bottom: -0.72rem;
         }}
         @media (max-width: 1500px) {{
             .skyline-nav-brand img {{
@@ -3104,8 +3160,11 @@ def apply_theme(background_source):
                 font-size: 1.08rem !important;
             }}
             div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
-                margin-top: -0.62rem;
-                margin-bottom: -0.06rem;
+                margin-top: -1.34rem;
+                margin-bottom: -0.08rem;
+            }}
+            div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:has(+ div:has(.trip-planner-controls-anchor)) {{
+                margin-bottom: -0.56rem;
             }}
             div[data-testid="stVerticalBlock"] > div:has(.compare-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
                 margin-top: -0.56rem;
@@ -3232,8 +3291,11 @@ def apply_theme(background_source):
                 top: -4.75rem;
             }}
             div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
-                margin-top: -0.5rem;
+                margin-top: -1.02rem;
                 margin-bottom: 0;
+            }}
+            div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:has(+ div:has(.trip-planner-controls-anchor)) {{
+                margin-bottom: -0.34rem;
             }}
             div[data-testid="stVerticalBlock"] > div:has(.compare-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
                 margin-top: -0.42rem;
@@ -3794,6 +3856,7 @@ def render_live_weather_map(
     show_controls=True,
     expanded=False,
     preferred_layer="Clouds",
+    dialog_mode=False,
 ):
     location = (weather or {}).get("location") or {}
     current = (weather or {}).get("current") or {}
@@ -3808,6 +3871,8 @@ def render_live_weather_map(
     current_temp = current.get("temperature", 0)
     feels_like = current.get("feels_like", 0)
     wind_speed = current.get("wind", 0)
+    visibility = current.get("visibility")
+    rain_chance = today.get("rain_chance", 0)
     day_high = today.get("max", 0)
     day_low = today.get("min", 0)
 
@@ -3861,21 +3926,29 @@ def render_live_weather_map(
         )
 
     layer_json = json.dumps(layer_config)
-    card_padding = "1.25rem 1.25rem 1.1rem" if expanded else "1rem 1rem 0.95rem"
-    title_size = "1.65rem" if expanded else "1.28rem"
-    frame_height = 640 if expanded else 540
-    embed_height = frame_height + 42
-    component_height = 880 if expanded else 720
-    map_shadow = "0 16px 42px rgba(4,15,32,0.18)" if expanded else "none"
-    layer_row_html = (
-        f"""
-          <div class="weather-map-layer-row">
-            {layer_buttons_html}
-          </div>
-        """
-        if show_controls
-        else ""
-    )
+    card_padding = "0" if dialog_mode else "1.25rem 1.25rem 1.1rem" if expanded else "1rem 1rem 0.95rem"
+    title_size = "1.72rem" if dialog_mode else "1.65rem" if expanded else "1.28rem"
+    frame_height = 760 if dialog_mode else 640 if expanded else 540
+    embed_height = frame_height + (52 if dialog_mode else 42)
+    component_height = 1072 if dialog_mode else 880 if expanded else 720
+    map_shadow = "none" if dialog_mode else "0 16px 42px rgba(4,15,32,0.18)" if expanded else "none"
+    layer_row_html = ""
+    if show_controls:
+        layer_row_html = (
+            f"""
+              <div class="weather-map-layer-shell">
+                <div class="weather-map-layer-row">
+                  {layer_buttons_html}
+                </div>
+              </div>
+            """
+            if dialog_mode
+            else f"""
+              <div class="weather-map-layer-row">
+                {layer_buttons_html}
+              </div>
+            """
+        )
     coordinate_html = ""
     if expanded:
         coordinate_html = (
@@ -3883,9 +3956,10 @@ def render_live_weather_map(
             f'<div class="weather-map-pill">Lon {longitude}</div>'
         )
 
-    components.html(
-        f"""
-        <div class="weather-map-card" id="weather-map-card">
+    header_html = (
+        ""
+        if dialog_mode
+        else f"""
           <div class="weather-map-header">
             <div class="weather-map-copy">
               <div class="weather-map-kicker">Live Weather Map</div>
@@ -3893,19 +3967,32 @@ def render_live_weather_map(
               <div class="weather-map-subtitle">{escape(subtitle)}</div>
             </div>
           </div>
+        """
+    )
+    meta_open = '<div class="weather-map-meta-shell">' if dialog_mode else ""
+    meta_close = "</div>" if dialog_mode else ""
+
+    components.html(
+        f"""
+        <div class="weather-map-card" id="weather-map-card">
+          {header_html}
           {layer_row_html}
           <div class="weather-map-stage">
             <div class="weather-map-frame-shell">
               <iframe id="weather-map-frame" class="weather-map-embed" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
             </div>
           </div>
+          {meta_open}
           <div class="weather-map-meta">
             <div class="weather-map-pill">Current {current_temp}{temp_symbol}</div>
             <div class="weather-map-pill">Feels {feels_like}{temp_symbol}</div>
             <div class="weather-map-pill">Wind {wind_speed} {speed_symbol}</div>
+            <div class="weather-map-pill">Rain {rain_chance}%</div>
+            <div class="weather-map-pill">Visibility {visibility if visibility is not None else "--"} km</div>
             <div class="weather-map-pill" id="weather-map-layer-pill">{escape(layer_config[active_layer]["pill"])}</div>
             {coordinate_html}
           </div>
+          {meta_close}
         </div>
         <style>
           body {{
@@ -3915,12 +4002,12 @@ def render_live_weather_map(
             color: #eef8ff;
           }}
           .weather-map-card {{
-            border-radius: 32px;
+            border-radius: { "0" if dialog_mode else "32px" };
             padding: {card_padding};
-            background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08));
-            border: 1px solid rgba(255,255,255,0.14);
+            background: {"transparent" if dialog_mode else "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08))"};
+            border: {"0" if dialog_mode else "1px solid rgba(255,255,255,0.14)"};
             box-shadow: {map_shadow};
-            backdrop-filter: blur(16px);
+            backdrop-filter: {"none" if dialog_mode else "blur(16px)"};
           }}
           .weather-map-kicker {{
             font-size: 0.82rem;
@@ -3939,28 +4026,36 @@ def render_live_weather_map(
             flex: 1;
           }}
           .weather-map-title {{
-            margin-top: 0.35rem;
+            margin-top: { "0.18rem" if dialog_mode else "0.35rem" };
             font-size: {title_size};
             font-weight: 700;
           }}
           .weather-map-subtitle {{
-            margin-top: 0.35rem;
+            margin-top: { "0.26rem" if dialog_mode else "0.35rem" };
             font-size: 0.92rem;
             opacity: 0.78;
+          }}
+          .weather-map-layer-shell {{
+            margin-top: 0.68rem;
+            padding: 0.8rem 0.88rem;
+            border-radius: 22px;
+            background: rgba(255,255,255,0.065);
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
           }}
           .weather-map-layer-row {{
             display: flex;
             flex-wrap: wrap;
             gap: 0.55rem;
-            margin-top: 1rem;
+            margin-top: { "0" if dialog_mode else "1rem" };
           }}
           .weather-map-chip {{
             border-radius: 999px;
-            padding: 0.52rem 0.92rem;
+            padding: { "0.56rem 0.98rem" if dialog_mode else "0.52rem 0.92rem" };
             border: 1px solid rgba(255,255,255,0.1);
-            background: rgba(255,255,255,0.06);
+            background: { "rgba(255,255,255,0.05)" if dialog_mode else "rgba(255,255,255,0.06)" };
             color: #eef8ff;
-            font-size: 0.86rem;
+            font-size: { "0.88rem" if dialog_mode else "0.86rem" };
             cursor: pointer;
             transition: transform 0.28s ease, background 0.28s ease, border-color 0.28s ease;
           }}
@@ -3971,57 +4066,68 @@ def render_live_weather_map(
             border-color: rgba(255,255,255,0.18);
           }}
           .weather-map-stage {{
-            margin-top: 0.95rem;
-            border-radius: 28px;
+            margin-top: { "0.76rem" if dialog_mode else "0.95rem" };
+            border-radius: { "22px" if dialog_mode else "28px" };
             overflow: hidden;
+            { 'padding: 0.84rem; background: rgba(255,255,255,0.065); border: 1px solid rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);' if dialog_mode else '' }
           }}
           .weather-map-frame-shell {{
             overflow: hidden;
-            border-radius: 28px;
+            border-radius: { "18px" if dialog_mode else "28px" };
             height: {frame_height}px;
             background: rgba(8, 20, 34, 0.45);
+            border: { "1px solid rgba(255,255,255,0.08)" if dialog_mode else "0" };
+            box-shadow: { "inset 0 1px 0 rgba(255,255,255,0.04)" if dialog_mode else "none" };
           }}
           .weather-map-embed {{
             width: 100%;
             height: {embed_height}px;
             border: 0;
-            margin-bottom: -42px;
+            margin-bottom: { "-36px" if dialog_mode else "-42px" };
             background: rgba(8, 20, 34, 0.45);
           }}
           .weather-map-meta {{
             display: flex;
             flex-wrap: wrap;
             gap: 0.55rem;
-            margin-top: 0.8rem;
+            margin-top: { "0" if dialog_mode else "0.8rem" };
+          }}
+          .weather-map-meta-shell {{
+            margin-top: 0.76rem;
+            padding: 0.82rem 0.88rem;
+            border-radius: 22px;
+            background: rgba(255,255,255,0.065);
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
           }}
           .weather-map-pill {{
             border-radius: 999px;
-            padding: 0.4rem 0.72rem;
-            background: rgba(255,255,255,0.08);
+            padding: { "0.46rem 0.78rem" if dialog_mode else "0.4rem 0.72rem" };
+            background: { "rgba(255,255,255,0.065)" if dialog_mode else "rgba(255,255,255,0.08)" };
             border: 1px solid rgba(255,255,255,0.1);
-            font-size: 0.85rem;
+            font-size: { "0.86rem" if dialog_mode else "0.85rem" };
           }}
           @media (max-width: 980px) {{
             .weather-map-header {{
               align-items: stretch;
             }}
             .weather-map-frame-shell {{
-              height: {max(320, frame_height - 90)}px;
+              height: {max(320, frame_height - (110 if dialog_mode else 90))}px;
             }}
             .weather-map-embed {{
-              height: {max(362, embed_height - 90)}px;
+              height: {max(362, embed_height - (110 if dialog_mode else 90))}px;
               margin-bottom: -36px;
             }}
           }}
           @media (max-width: 640px) {{
             .weather-map-card {{
-              padding: 1rem 1rem 0.95rem;
+              padding: { "0" if dialog_mode else "1rem 1rem 0.95rem" };
             }}
             .weather-map-frame-shell {{
-              height: {max(300, frame_height - 120)}px;
+              height: {max(300, frame_height - (150 if dialog_mode else 120))}px;
             }}
             .weather-map-embed {{
-              height: {max(342, embed_height - 120)}px;
+              height: {max(342, embed_height - (150 if dialog_mode else 120))}px;
               margin-bottom: -30px;
             }}
           }}
