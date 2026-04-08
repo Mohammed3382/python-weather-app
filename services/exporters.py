@@ -769,22 +769,22 @@ def build_trip_plan_pdf(bundle):
 
 
 def _draw_brand_logo(draw_rect, draw_line, draw_text, x, top, scale=1.0):
-    panel_width = 72 * scale
-    panel_height = 58 * scale
+    panel_width = 78 * scale
+    panel_height = 60 * scale
     draw_rect(x, top, panel_width, panel_height, (0.92, 0.97, 1.0), (0.78, 0.88, 0.95), 0.6)
-    skyline_top = top + (38 * scale)
-    draw_line(x + (14 * scale), skyline_top, x + (58 * scale), skyline_top, (0.9, 0.97, 1.0), 2.4 * scale)
-    draw_line(x + (22 * scale), skyline_top, x + (22 * scale), top + (24 * scale), (0.84, 0.94, 0.99), 3.2 * scale)
-    draw_line(x + (33 * scale), skyline_top, x + (33 * scale), top + (18 * scale), (0.85, 0.95, 0.995), 4.0 * scale)
-    draw_line(x + (45 * scale), skyline_top, x + (45 * scale), top + (12 * scale), (0.88, 0.96, 1.0), 4.6 * scale)
-    draw_line(x + (57 * scale), skyline_top, x + (57 * scale), top + (22 * scale), (0.85, 0.95, 0.995), 3.8 * scale)
-    draw_line(x + (18 * scale), top + (32 * scale), x + (28 * scale), top + (22 * scale), (0.96, 0.995, 1.0), 2.2 * scale)
-    draw_line(x + (28 * scale), top + (22 * scale), x + (37 * scale), top + (18 * scale), (0.96, 0.995, 1.0), 2.2 * scale)
-    draw_line(x + (37 * scale), top + (18 * scale), x + (48 * scale), top + (18 * scale), (0.96, 0.995, 1.0), 2.2 * scale)
-    draw_text(x + (60 * scale), top + (17 * scale), "o", font_name="F2", size=9 * scale, rgb=(0.98, 1.0, 1.0))
-    draw_text(x + (88 * scale), top + (16 * scale), "SKYLINE", font_name="F2", size=20 * scale, rgb=(1, 1, 1))
-    draw_text(x + (90 * scale), top + (37 * scale), "FORECAST", font_name="F2", size=10 * scale, rgb=(0.86, 0.93, 0.98))
-    draw_line(x + (88 * scale), top + (46 * scale), x + (198 * scale), top + (46 * scale), (0.82, 0.92, 0.98), 1.2 * scale)
+    skyline_top = top + (40 * scale)
+    draw_line(x + (14 * scale), skyline_top, x + (62 * scale), skyline_top, (0.9, 0.97, 1.0), 2.4 * scale)
+    draw_line(x + (24 * scale), skyline_top, x + (24 * scale), top + (24 * scale), (0.84, 0.94, 0.99), 3.2 * scale)
+    draw_line(x + (36 * scale), skyline_top, x + (36 * scale), top + (18 * scale), (0.85, 0.95, 0.995), 4.0 * scale)
+    draw_line(x + (48 * scale), skyline_top, x + (48 * scale), top + (12 * scale), (0.88, 0.96, 1.0), 4.6 * scale)
+    draw_line(x + (60 * scale), skyline_top, x + (60 * scale), top + (22 * scale), (0.85, 0.95, 0.995), 3.8 * scale)
+    draw_line(x + (20 * scale), top + (30 * scale), x + (29 * scale), top + (22 * scale), (0.96, 0.995, 1.0), 2.0 * scale)
+    draw_line(x + (29 * scale), top + (22 * scale), x + (39 * scale), top + (18 * scale), (0.96, 0.995, 1.0), 2.0 * scale)
+    draw_line(x + (39 * scale), top + (18 * scale), x + (49 * scale), top + (18 * scale), (0.96, 0.995, 1.0), 2.0 * scale)
+    draw_line(x + (49 * scale), top + (18 * scale), x + (58 * scale), top + (24 * scale), (0.96, 0.995, 1.0), 2.0 * scale)
+    draw_text(x + (96 * scale), top + (16 * scale), "SKYLINE", font_name="F2", size=20 * scale, rgb=(1, 1, 1))
+    draw_text(x + (98 * scale), top + (37 * scale), "FORECAST", font_name="F2", size=10 * scale, rgb=(0.86, 0.93, 0.98))
+    draw_line(x + (96 * scale), top + (46 * scale), x + (206 * scale), top + (46 * scale), (0.82, 0.92, 0.98), 1.2 * scale)
 
 
 def _build_pdf_export_v2(bundle):
@@ -1089,7 +1089,7 @@ def _build_trip_plan_pdf_v2(bundle):
     cover_page = new_page()
     draw_rect(cover_page, 36, 34, 540, 92, (0.13, 0.25, 0.42))
     draw_brand_logo(cover_page, 54, 52, 0.74)
-    draw_text(cover_page, 402, 64, "Trip Planner PDF", font_name="F2", size=17, rgb=(1, 1, 1))
+    draw_text(cover_page, 408, 64, "Trip Planner", font_name="F2", size=17, rgb=(1, 1, 1))
     route_top = draw_wrapped_text(
         cover_page,
         54,
@@ -1160,7 +1160,7 @@ def _build_trip_plan_pdf_v2(bundle):
             x_position + 14,
             top_position + 72,
             f'Trip range {city.get("comparison_values", {}).get("Trip Range", "--")} | Best {city.get("best_day_label", "--")}',
-            max_chars=max(16, int(cover_card_width / 6.1)),
+            max_chars=max(14, int(cover_card_width / 6.3)),
             font_name="F1",
             size=7,
             rgb=(0.28, 0.36, 0.46),
@@ -1189,7 +1189,7 @@ def _build_trip_plan_pdf_v2(bundle):
         map_page,
         54,
         map_top + 44,
-        "The route page now places each chosen city according to its latitude and longitude instead of using fixed fake map markers.",
+        "Each selected city is plotted from its coordinates so the route sketch and comparison table stay aligned to the same trip window.",
         max_chars=86,
         font_name="F1",
         size=8,
@@ -1226,17 +1226,36 @@ def _build_trip_plan_pdf_v2(bundle):
     legend_top = map_top + 240
     legend_columns = 2
     legend_width = (508 - 12) / legend_columns
+    legend_card_height = 30
+    legend_row_count = max(1, (len(map_points) + legend_columns - 1) // legend_columns)
     for index, point in enumerate(map_points):
         row_index = index // legend_columns
         column_index = index % legend_columns
         block_x = 52 + (column_index * (legend_width + 12))
-        block_top = legend_top + (row_index * 22)
+        block_top = legend_top + (row_index * legend_card_height)
         palette = point_palette.get(point.get("kind"), point_palette["comparison"])
-        draw_circle(map_page, block_x + 8, block_top + 9, 4.3, palette["fill"], palette["stroke"], 0.5)
-        draw_text(map_page, block_x + 18, block_top + 12, f'{point["index"]}. {point["label"]} ({point["subtitle"]})', font_name="F2", size=7, rgb=(0.16, 0.24, 0.34))
-        draw_text(map_page, block_x + 18, block_top + 21, f'{point["summary"]} | {point["latitude"]}, {point["longitude"]}', font_name="F1", size=6, rgb=(0.31, 0.39, 0.49))
+        draw_rect(map_page, block_x, block_top, legend_width, legend_card_height - 4, (0.97, 0.98, 1.0), (0.86, 0.9, 0.95), 0.4)
+        draw_circle(map_page, block_x + 12, block_top + 12, 4.5, palette["fill"], palette["stroke"], 0.5)
+        draw_text(
+            map_page,
+            block_x + 24,
+            block_top + 11,
+            f'{point["index"]}. {_truncate_pdf_text(point["label"], 22)}',
+            font_name="F2",
+            size=7,
+            rgb=(0.16, 0.24, 0.34),
+        )
+        draw_text(
+            map_page,
+            block_x + 24,
+            block_top + 21,
+            f'{_truncate_pdf_text(point["subtitle"], 18)} | {point["latitude"]}, {point["longitude"]}',
+            font_name="F1",
+            size=6,
+            rgb=(0.31, 0.39, 0.49),
+        )
 
-    comparison_top = 432
+    comparison_top = max(432, legend_top + (legend_row_count * legend_card_height) + 18)
     draw_rect(map_page, 36, comparison_top, 540, 300, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
     draw_text(map_page, 54, comparison_top + 22, "City Comparison Matrix", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
     draw_wrapped_text(
@@ -1258,10 +1277,12 @@ def _build_trip_plan_pdf_v2(bundle):
     draw_text(map_page, 44, header_row_top + 16, "Metric", font_name="F2", size=8, rgb=(0.18, 0.27, 0.38))
     for index, city in enumerate(cities):
         cell_x = 36 + metric_column_width + (index * value_column_width)
-        draw_text(map_page, cell_x + 6, header_row_top + 16, city.get("short_name", ""), font_name="F2", size=8, rgb=(0.18, 0.27, 0.38))
+        draw_cell_text(map_page, cell_x, header_row_top, value_column_width, 24, city.get("short_name", ""), font_name="F2", size=7, rgb=(0.18, 0.27, 0.38))
 
     matrix_row_top = header_row_top + 24
-    matrix_row_height = 28 if len(cities) <= 4 else 32
+    available_matrix_height = max(154, comparison_top + 284 - matrix_row_top)
+    ideal_matrix_row_height = 28 if len(cities) <= 4 else 32
+    matrix_row_height = min(ideal_matrix_row_height, max(22, int(available_matrix_height / max(1, len(comparison_rows[:7])))))
     for index, row in enumerate(comparison_rows[:7]):
         current_top = matrix_row_top + (index * matrix_row_height)
         fill_color = (0.97, 0.98, 1.0) if index % 2 == 0 else (0.94, 0.97, 0.995)
@@ -1275,15 +1296,26 @@ def _build_trip_plan_pdf_v2(bundle):
         detail_page = new_page()
         draw_rect(detail_page, 36, 34, 540, 84, (0.15, 0.27, 0.44))
         draw_brand_logo(detail_page, 54, 50, 0.68)
-        draw_text(detail_page, 54, 128, city.get("city_name", ""), font_name="F2", size=18, rgb=(0.11, 0.2, 0.31))
-        draw_text(detail_page, 54, 148, f'{city.get("role_label", "City")} | {bundle.get("date_range_label", "")}', font_name="F1", size=9, rgb=(0.33, 0.41, 0.52))
+        city_title_bottom = draw_wrapped_text(
+            detail_page,
+            54,
+            128,
+            city.get("city_name", ""),
+            max_chars=58,
+            font_name="F2",
+            size=18,
+            rgb=(0.11, 0.2, 0.31),
+            line_gap=17,
+        )
+        draw_text(detail_page, 54, city_title_bottom + 4, f'{city.get("role_label", "City")} | {bundle.get("date_range_label", "")}', font_name="F1", size=9, rgb=(0.33, 0.41, 0.52))
 
-        draw_rect(detail_page, 36, 166, 540, 84, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
-        draw_text(detail_page, 54, 190, "City Summary", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
+        summary_top = city_title_bottom + 22
+        draw_rect(detail_page, 36, summary_top, 540, 84, (0.96, 0.98, 1.0), (0.82, 0.88, 0.94), 0.8)
+        draw_text(detail_page, 54, summary_top + 24, "City Summary", font_name="F2", size=12, rgb=(0.11, 0.2, 0.31))
         draw_wrapped_text(
             detail_page,
             54,
-            214,
+            summary_top + 48,
             city.get("overview_body", ""),
             max_chars=90,
             font_name="F1",
@@ -1293,7 +1325,7 @@ def _build_trip_plan_pdf_v2(bundle):
         )
 
         note_cards = city.get("note_cards", [])[:4]
-        note_top = 268
+        note_top = summary_top + 96
         note_width = 264
         note_height = 64
         for index, note in enumerate(note_cards):
@@ -1303,7 +1335,7 @@ def _build_trip_plan_pdf_v2(bundle):
             top_position = note_top + (row_index * (note_height + 12))
             draw_metric_card(detail_page, x_position, top_position, note_width, note_height, note.get("label", ""), note.get("value", ""), note.get("body", ""))
 
-        table_top = 424
+        table_top = note_top + 148
         draw_rect(detail_page, 36, table_top, 540, 28, (0.36, 0.49, 0.65))
         draw_text(detail_page, 52, table_top + 18, "Daily Forecast Window", font_name="F2", size=12, rgb=(1, 1, 1))
 
@@ -1324,8 +1356,9 @@ def _build_trip_plan_pdf_v2(bundle):
 
         row_top = header_top + 24
         row_count = max(1, len(city.get("daily_rows", [])))
-        available_table_height = 250
-        row_height = 26 if row_count <= 10 else max(18, int(available_table_height / row_count))
+        available_table_height = max(180, 742 - row_top)
+        ideal_row_height = 26 if row_count <= 10 else 22
+        row_height = min(ideal_row_height, max(18, int(available_table_height / row_count)))
         row_text_offset = 16 if row_height >= 22 else max(10, row_height - 6)
         row_font_size = 7 if row_height >= 20 else 6
         for index, row in enumerate(city.get("daily_rows", [])):
@@ -1689,6 +1722,14 @@ def _pdf_escape(text):
     safe = _pdf_plain(text)
     safe = safe.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
     return safe.encode("latin-1", errors="replace").decode("latin-1")
+
+
+def _truncate_pdf_text(text, max_length):
+    plain_text = _pdf_plain(text)
+    if len(plain_text) <= max_length:
+        return plain_text
+    clipped = plain_text[: max(1, max_length - 3)].rstrip()
+    return f"{clipped}..."
 
 
 def _build_pdf_bytes(content_stream, page_width, page_height):

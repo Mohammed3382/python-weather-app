@@ -3926,11 +3926,11 @@ def render_live_weather_map(
         )
 
     layer_json = json.dumps(layer_config)
-    card_padding = "0" if dialog_mode else "1.25rem 1.25rem 1.1rem" if expanded else "1rem 1rem 0.95rem"
+    card_padding = "0.94rem 0.98rem 0.98rem" if dialog_mode else "1.25rem 1.25rem 1.1rem" if expanded else "1rem 1rem 0.95rem"
     title_size = "1.72rem" if dialog_mode else "1.65rem" if expanded else "1.28rem"
-    frame_height = 760 if dialog_mode else 640 if expanded else 540
-    embed_height = frame_height + (52 if dialog_mode else 42)
-    component_height = 1072 if dialog_mode else 880 if expanded else 720
+    frame_height = 648 if dialog_mode else 640 if expanded else 540
+    embed_height = frame_height + (48 if dialog_mode else 42)
+    component_height = 1008 if dialog_mode else 880 if expanded else 720
     map_shadow = "none" if dialog_mode else "0 16px 42px rgba(4,15,32,0.18)" if expanded else "none"
     layer_row_html = ""
     if show_controls:
@@ -4002,12 +4002,12 @@ def render_live_weather_map(
             color: #eef8ff;
           }}
           .weather-map-card {{
-            border-radius: { "0" if dialog_mode else "32px" };
+            border-radius: { "22px" if dialog_mode else "32px" };
             padding: {card_padding};
-            background: {"transparent" if dialog_mode else "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08))"};
-            border: {"0" if dialog_mode else "1px solid rgba(255,255,255,0.14)"};
-            box-shadow: {map_shadow};
-            backdrop-filter: {"none" if dialog_mode else "blur(16px)"};
+            background: {"rgba(255,255,255,0.065)" if dialog_mode else "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08))"};
+            border: {"1px solid rgba(255,255,255,0.08)" if dialog_mode else "1px solid rgba(255,255,255,0.14)"};
+            box-shadow: {"inset 0 1px 0 rgba(255,255,255,0.04)" if dialog_mode else map_shadow};
+            backdrop-filter: {"blur(16px)" if dialog_mode else "blur(16px)"};
           }}
           .weather-map-kicker {{
             font-size: 0.82rem;
@@ -4036,7 +4036,7 @@ def render_live_weather_map(
             opacity: 0.78;
           }}
           .weather-map-layer-shell {{
-            margin-top: 0.68rem;
+            margin-top: { "0" if dialog_mode else "0.68rem" };
             padding: 0.8rem 0.88rem;
             border-radius: 22px;
             background: rgba(255,255,255,0.065);
@@ -4069,13 +4069,13 @@ def render_live_weather_map(
             margin-top: { "0.76rem" if dialog_mode else "0.95rem" };
             border-radius: { "22px" if dialog_mode else "28px" };
             overflow: hidden;
-            { 'padding: 0.84rem; background: rgba(255,255,255,0.065); border: 1px solid rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);' if dialog_mode else '' }
+            { 'padding: 0.86rem 0.88rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);' if dialog_mode else '' }
           }}
           .weather-map-frame-shell {{
             overflow: hidden;
             border-radius: { "18px" if dialog_mode else "28px" };
             height: {frame_height}px;
-            background: rgba(8, 20, 34, 0.45);
+            background: rgba(8, 20, 34, 0.46);
             border: { "1px solid rgba(255,255,255,0.08)" if dialog_mode else "0" };
             box-shadow: { "inset 0 1px 0 rgba(255,255,255,0.04)" if dialog_mode else "none" };
           }}
@@ -4083,7 +4083,7 @@ def render_live_weather_map(
             width: 100%;
             height: {embed_height}px;
             border: 0;
-            margin-bottom: { "-36px" if dialog_mode else "-42px" };
+            margin-bottom: { "-34px" if dialog_mode else "-42px" };
             background: rgba(8, 20, 34, 0.45);
           }}
           .weather-map-meta {{
@@ -4121,7 +4121,7 @@ def render_live_weather_map(
           }}
           @media (max-width: 640px) {{
             .weather-map-card {{
-              padding: { "0" if dialog_mode else "1rem 1rem 0.95rem" };
+              padding: { "0.84rem 0.88rem 0.9rem" if dialog_mode else "1rem 1rem 0.95rem" };
             }}
             .weather-map-frame-shell {{
               height: {max(300, frame_height - (150 if dialog_mode else 120))}px;

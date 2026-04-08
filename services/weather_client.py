@@ -10,6 +10,7 @@ import streamlit as st
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+HISTORICAL_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 METNO_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
 STATE_FILE = Path("last_weather_state.json")
 OPEN_METEO_TIMEOUT_SECONDS = 4
@@ -896,6 +897,28 @@ def get_weather(city_name):
             raise WeatherError("Unable to fetch weather data right now.") from exc
 
 
+def _fetch_open_meteo_daily_range(api_url, latitude, longitude, start_date, end_date, timezone_name):
+    response = requests.get(
+        api_url,
+        params={
+            "latitude": latitude,
+            "longitude": longitude,
+            "daily": ",".join(DAILY_EXPORT_FIELDS),
+            "timezone": timezone_name or "auto",
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+        timeout=OPEN_METEO_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+
+    daily = (response.json() or {}).get("daily") or {}
+    forecast_rows = _build_daily_forecast_rows(daily)
+    if not forecast_rows:
+        raise ForecastDataError("No weather data is available for the selected date range.")
+    return forecast_rows
+
+
 @st.cache_data(show_spinner=False, ttl=1800)
 def get_daily_weather_range(latitude, longitude, start_date, end_date, timezone_name="auto"):
     if isinstance(start_date, date):
@@ -906,44 +929,59 @@ def get_daily_weather_range(latitude, longitude, start_date, end_date, timezone_
     start_dt = datetime.fromisoformat(start_date).date()
     end_dt = datetime.fromisoformat(end_date).date()
     today = datetime.now().date()
-    can_use_metno_range = start_dt >= today and end_dt <= today + timedelta(days=METNO_FALLBACK_HORIZON_DAYS)
+    combined_rows = []
 
-    if can_use_metno_range and _should_prefer_metno():
+    historical_end_dt = min(end_dt, today - timedelta(days=1))
+    if start_dt <= historical_end_dt:
         try:
-            forecast_rows = _build_metno_daily_range(latitude, longitude, start_dt, end_dt, timezone_name or "")
-            if forecast_rows:
-                return forecast_rows
-        except (requests.RequestException, ForecastDataError):
-            pass
+            combined_rows.extend(
+                _fetch_open_meteo_daily_range(
+                    HISTORICAL_FORECAST_URL,
+                    latitude,
+                    longitude,
+                    start_dt.isoformat(),
+                    historical_end_dt.isoformat(),
+                    timezone_name,
+                )
+            )
+        except requests.RequestException as exc:
+            raise WeatherError("Unable to load the selected historical date range right now.") from exc
 
-    try:
-        response = requests.get(
-            FORECAST_URL,
-            params={
-                "latitude": latitude,
-                "longitude": longitude,
-                "daily": ",".join(DAILY_EXPORT_FIELDS),
-                "timezone": timezone_name or "auto",
-                "start_date": start_date,
-                "end_date": end_date,
-            },
-            timeout=OPEN_METEO_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-    except requests.RequestException:
-        if can_use_metno_range:
-            _mark_open_meteo_degraded()
+    future_start_dt = max(start_dt, today)
+    if future_start_dt <= end_dt:
+        can_use_metno_range = future_start_dt >= today and end_dt <= today + timedelta(days=METNO_FALLBACK_HORIZON_DAYS)
+
+        if can_use_metno_range and _should_prefer_metno():
             try:
-                forecast_rows = _build_metno_daily_range(latitude, longitude, start_dt, end_dt, timezone_name or "")
+                forecast_rows = _build_metno_daily_range(latitude, longitude, future_start_dt, end_dt, timezone_name or "")
                 if forecast_rows:
-                    return forecast_rows
+                    return combined_rows + forecast_rows
             except (requests.RequestException, ForecastDataError):
                 pass
-        raise WeatherError("Unable to load the selected date range right now.")
 
-    _clear_open_meteo_degraded()
-    daily = (response.json() or {}).get("daily") or {}
-    forecast_rows = _build_daily_forecast_rows(daily)
-    if not forecast_rows:
+        try:
+            combined_rows.extend(
+                _fetch_open_meteo_daily_range(
+                    FORECAST_URL,
+                    latitude,
+                    longitude,
+                    future_start_dt.isoformat(),
+                    end_dt.isoformat(),
+                    timezone_name,
+                )
+            )
+            _clear_open_meteo_degraded()
+        except requests.RequestException:
+            if can_use_metno_range:
+                _mark_open_meteo_degraded()
+                try:
+                    forecast_rows = _build_metno_daily_range(latitude, longitude, future_start_dt, end_dt, timezone_name or "")
+                    if forecast_rows:
+                        return combined_rows + forecast_rows
+                except (requests.RequestException, ForecastDataError):
+                    pass
+            raise WeatherError("Unable to load the selected date range right now.")
+
+    if not combined_rows:
         raise ForecastDataError("No weather data is available for the selected date range.")
-    return forecast_rows
+    return combined_rows

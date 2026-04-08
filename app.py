@@ -2203,55 +2203,6 @@ def handle_decision_mode_search_event(search_event):
     return selected_activity
 
 
-def prime_map_dialog_state(weather_to_show):
-    st.session_state["map_dialog_query"] = weather_to_show.get("resolved_city") or ""
-    st.session_state["map_dialog_selection"] = build_weather_search_entry(weather_to_show, meta="Current map focus")
-    st.session_state["map_dialog_search_event_id"] = ""
-    st.session_state["map_dialog_weather"] = weather_to_show
-    st.session_state["map_dialog_error"] = ""
-
-
-def handle_map_dialog_search_event(search_event, fallback_weather=None):
-    if not isinstance(search_event, dict):
-        return None
-
-    event_id = str(search_event.get("event_id") or "").strip()
-    if not event_id:
-        return None
-
-    if st.session_state.get("map_dialog_search_event_id") == event_id:
-        return st.session_state.get("map_dialog_weather") or fallback_weather
-
-    st.session_state["map_dialog_search_event_id"] = event_id
-    action = str(search_event.get("action") or "").strip().lower()
-    payload = search_event.get("payload") or {}
-
-    if action == "draft":
-        st.session_state["map_dialog_query"] = get_search_display_value(payload)
-        return st.session_state.get("map_dialog_weather") or fallback_weather
-
-    if action != "search":
-        return st.session_state.get("map_dialog_weather") or fallback_weather
-
-    search_value = payload if payload else st.session_state.get("map_dialog_query", "")
-    search_query = get_search_display_value(search_value)
-    if not search_query:
-        return st.session_state.get("map_dialog_weather") or fallback_weather
-
-    try:
-        with st.spinner("Updating map focus..."):
-            weather = get_weather(search_value)
-        st.session_state["map_dialog_query"] = weather.get("resolved_city") or search_query
-        st.session_state["map_dialog_selection"] = build_weather_search_entry(weather, meta="Recent search")
-        st.session_state["map_dialog_weather"] = weather
-        st.session_state["map_dialog_error"] = ""
-        remember_recent_search(weather)
-        return weather
-    except WeatherError as exc:
-        st.session_state["map_dialog_error"] = str(exc)
-        return st.session_state.get("map_dialog_weather") or fallback_weather
-
-
 def get_trip_planner_extra_city_keys(slot_index):
     slot_suffix = str(int(slot_index))
     return {
@@ -2583,21 +2534,33 @@ def build_export_panel_payload(weather_to_show, city_to_show, temp_symbol, speed
 
     for range_key, range_label in EXPORT_RANGE_OPTIONS:
         window_config = resolve_export_window(range_key, get_default_export_custom_dates())
-        export_rows = load_export_window_rows(weather_to_show, window_config)
-        bundle = build_export_bundle(
-            weather_to_show,
-            city_to_show,
-            temp_symbol,
-            speed_symbol,
-            use_fahrenheit,
-            intelligence_payload,
-            range_key,
-            window_config["label"],
-            export_rows,
-        )
-        csv_bytes = build_csv_export(bundle)
-        excel_bytes = build_excel_export(bundle)
-        pdf_bytes = build_pdf_export(bundle)
+        try:
+            export_rows = load_export_window_rows(weather_to_show, window_config)
+            bundle = build_export_bundle(
+                weather_to_show,
+                city_to_show,
+                temp_symbol,
+                speed_symbol,
+                use_fahrenheit,
+                intelligence_payload,
+                range_key,
+                window_config["label"],
+                export_rows,
+            )
+            csv_bytes = build_csv_export(bundle)
+            excel_bytes = build_excel_export(bundle)
+            pdf_bytes = build_pdf_export(bundle)
+        except (ValueError, ForecastDataError, WeatherError) as exc:
+            range_items.append(
+                {
+                    "key": range_key,
+                    "label": window_config["label"],
+                    "summary": str(exc),
+                    "files": [],
+                    "error": str(exc),
+                }
+            )
+            continue
 
         file_prefix = f"skyline_forecast_{safe_city}_{window_config['filename_tag']}_{timestamp}"
         range_items.append(
@@ -4359,11 +4322,6 @@ def initialize_session_state():
         "trip_planner_start_date": get_default_trip_planner_dates()[0],
         "trip_planner_end_date": get_default_trip_planner_dates()[1],
         "trip_planner_error": "",
-        "map_dialog_query": "",
-        "map_dialog_selection": None,
-        "map_dialog_search_event_id": "",
-        "map_dialog_weather": None,
-        "map_dialog_error": "",
         "preferences_loaded": False,
         "personal_activity_focus": PERSONAL_ACTIVITY_OPTIONS[0],
         "personal_preferred_time": PERSONAL_TIME_OPTIONS[0],
@@ -4629,6 +4587,9 @@ def inject_dialog_surface(anchor_class, dialog_width):
 
           const handleOverlayPointerDown = (event) => {{
             if (!dialogRoot.contains(event.target)) {{
+              return;
+            }}
+            if (event.target.closest('[data-skyline-floating-portal="true"]')) {{
               return;
             }}
             if (event.target.closest('div[role="dialog"]')) {{
@@ -6172,245 +6133,12 @@ def render_activities_tab(weather_to_show, intelligence_payload, temp_symbol, sp
     render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit)
 
 
-def render_map_dialog_panel(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
-    inject_dialog_surface("skyline-map-dialog-anchor", "min(95vw, 1540px)")
-    st.markdown(
-        dedent(
-            """
-            <style>
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) > div[data-testid="stVerticalBlock"] {
-                gap: 0.72rem;
-                padding-bottom: 1.04rem;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-shell {
-                padding-top: 0.04rem;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero {
-                display: grid;
-                grid-template-columns: minmax(0, 1.16fr) minmax(300px, 0.84fr);
-                gap: 0.76rem;
-                align-items: stretch;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero-main,
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero-side,
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-story,
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-shell {
-                border-radius: 22px;
-                background: rgba(255,255,255,0.065);
-                border: 1px solid rgba(255,255,255,0.08);
-                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero-main,
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero-side {
-                padding: 0.95rem 1rem;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-title {
-                margin-top: 0.22rem;
-                font-size: clamp(1.7rem, 2.6vw, 2.35rem);
-                font-weight: 800;
-                line-height: 1.02;
-                color: #f8fbff;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-body {
-                margin-top: 0.42rem;
-                max-width: 62ch;
-                font-size: 0.92rem;
-                line-height: 1.58;
-                color: rgba(236, 247, 255, 0.82);
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-condition {
-                margin-top: 0.42rem;
-                font-size: 0.98rem;
-                color: rgba(245, 251, 255, 0.92);
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-range {
-                margin-top: 0.42rem;
-                font-size: 0.92rem;
-                color: rgba(236, 247, 255, 0.82);
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat-grid {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 0.55rem;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat {
-                padding: 0.72rem 0.78rem;
-                border-radius: 18px;
-                background: rgba(255,255,255,0.06);
-                border: 1px solid rgba(255,255,255,0.08);
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat-label {
-                font-size: 0.72rem;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                opacity: 0.68;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat-value {
-                margin-top: 0.24rem;
-                font-size: 0.96rem;
-                font-weight: 700;
-                color: #f8fbff;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-story {
-                margin-top: 0.78rem;
-                padding: 0.86rem 0.96rem;
-                font-size: 0.92rem;
-                line-height: 1.56;
-                color: rgba(242, 248, 255, 0.9);
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-shell {
-                margin-top: 0.76rem;
-                padding: 0.88rem 0.96rem 0.94rem;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-body {
-                margin-top: 0.22rem;
-                font-size: 0.88rem;
-                color: rgba(236, 247, 255, 0.78);
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-anchor + div[data-testid="stElementContainer"] {
-                margin-top: -0.44rem;
-                margin-bottom: 0;
-            }
-            div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-search-anchor + div[data-testid="stElementContainer"] iframe {
-                min-height: 82px;
-            }
-            @media (max-width: 1120px) {
-                div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-hero {
-                    grid-template-columns: 1fr;
-                }
-            }
-            @media (max-width: 720px) {
-                div[data-testid="stDialog"] div[role="dialog"]:has(.skyline-map-dialog-anchor) .skyline-map-dialog-stat-grid {
-                    grid-template-columns: 1fr;
-                }
-            }
-            </style>
-            <div class="skyline-map-dialog-anchor" aria-hidden="true"></div>
-            """
-        ).strip(),
-        unsafe_allow_html=True,
-    )
-
-    selected_weather = st.session_state.get("map_dialog_weather") or weather_to_show
-    search_event = SEARCH_COMPONENT(
-        initial_value=st.session_state.get("map_dialog_query", selected_weather.get("resolved_city", "")),
-        recent_searches=get_search_component_recent_entries(),
-        placeholder="Search any city to refocus the map",
-        enable_geolocation=False,
-        emit_drafts=True,
-        compact=True,
-        key="map_dialog_search_component",
-        default=None,
-    )
-    selected_weather = handle_map_dialog_search_event(search_event, fallback_weather=selected_weather) or selected_weather
-
-    current = (selected_weather or {}).get("current") or {}
-    forecast = (selected_weather or {}).get("forecast") or []
-    today = forecast[0] if forecast else {}
-    location = (selected_weather or {}).get("location") or {}
-    current_temp = format_temperature_text(current.get("temperature", 0), temp_symbol, use_fahrenheit)
-    day_high = format_temperature_text(today.get("max", 0), temp_symbol, use_fahrenheit)
-    day_low = format_temperature_text(today.get("min", 0), temp_symbol, use_fahrenheit)
-    condition_icon = get_condition_icon(current.get("condition") or "Cloudy")
-    support_items = [
-        ("Current", current_temp),
-        ("Rain chance", f"{today.get('rain_chance', 0)}%"),
-        ("Wind", format_wind_text(current.get("wind", 0), speed_symbol)),
-        ("Visibility", f"{current.get('visibility') if current.get('visibility') not in (None, '') else '--'} km"),
-    ]
-    support_html = "".join(
-        dedent(
-            f"""
-            <div class="skyline-map-dialog-stat">
-                <div class="skyline-map-dialog-stat-label">{escape(label)}</div>
-                <div class="skyline-map-dialog-stat-value">{escape(value)}</div>
-            </div>
-            """
-        ).strip()
-        for label, value in support_items
-    )
-    story_copy = (
-        f"{current.get('condition') or 'Current'} conditions over {selected_weather.get('resolved_city') or 'this location'} "
-        f"with a {today.get('rain_chance', 0)}% rain chance, {format_wind_text(current.get('wind', 0), speed_symbol)} winds, "
-        f"and visibility near {current.get('visibility') if current.get('visibility') not in (None, '') else '--'} km."
-    )
-
-    st.markdown(
-        dedent(
-            """
-            <div class="skyline-map-dialog-shell">
-                <div class="skyline-map-dialog-hero">
-                    <div class="skyline-map-dialog-hero-main">
-                        <div class="intel-card-kicker">Expanded Weather Map</div>
-                        <div class="skyline-map-dialog-title">__CITY_TITLE__</div>
-                        <div class="skyline-map-dialog-condition">__CONDITION_LINE__</div>
-                        <div class="skyline-map-dialog-range">Low __LOW_VALUE__ | High __HIGH_VALUE__</div>
-                    </div>
-                    <div class="skyline-map-dialog-hero-side">
-                        <div class="intel-card-kicker">Map Snapshot</div>
-                        <div class="skyline-map-dialog-stat-grid">
-                            __SUPPORT_HTML__
-                        </div>
-                    </div>
-                </div>
-                <div class="skyline-map-dialog-story">__STORY_COPY__</div>
-                <div class="skyline-map-dialog-search-shell">
-                    <div class="intel-card-kicker">Search Another Location</div>
-                    <div class="skyline-map-dialog-search-body">Refocus the map, then use the larger canvas and live layers underneath for a clearer weather read.</div>
-                </div>
-            </div>
-            """
-        )
-        .replace("__CITY_TITLE__", escape(selected_weather.get("resolved_city") or "Selected location"))
-        .replace("__CONDITION_LINE__", escape(f"{condition_icon} {current.get('condition') or 'Current conditions'}"))
-        .replace("__LOW_VALUE__", escape(day_low))
-        .replace("__HIGH_VALUE__", escape(day_high))
-        .replace("__SUPPORT_HTML__", support_html)
-        .replace("__STORY_COPY__", escape(story_copy))
-        .strip(),
-        unsafe_allow_html=True,
-    )
-    st.markdown("<div class='skyline-map-dialog-search-anchor'></div>", unsafe_allow_html=True)
-
-    map_dialog_error = str(st.session_state.get("map_dialog_error") or "").strip()
-    if map_dialog_error:
-        st.warning(map_dialog_error)
-
-    render_live_weather_map(
-        selected_weather,
-        temp_symbol,
-        speed_symbol,
-        use_fahrenheit,
-        show_controls=True,
-        expanded=True,
-        preferred_layer=st.session_state.get("weather_map_layer", MAP_LAYER_OPTIONS[0]),
-        dialog_mode=True,
-    )
-
-
-def open_map_dialog(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
-    if hasattr(st, "dialog"):
-        @st.dialog("Expanded Weather Map")
-        def map_dialog():
-            render_map_dialog_panel(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit)
-
-        map_dialog()
-    else:
-        with st.popover("Expanded Weather Map", use_container_width=True):
-            render_map_dialog_panel(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit)
-
-
 def render_map_tab(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit):
     render_insight_section_header(
         "Weather Map",
         "Switch between multiple live layers here, including clouds, temperature, rain, wind, and additional map views.",
         "Live Layers",
     )
-    map_action_columns = st.columns([5.6, 1.2], gap="small")
-    with map_action_columns[1]:
-        if st.button("\u2922 Expand", key="open_map_dialog_button", type="secondary", use_container_width=True):
-            prime_map_dialog_state(weather_to_show)
-            open_map_dialog(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit)
     render_live_weather_map(
         weather_to_show,
         temp_symbol,
