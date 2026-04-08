@@ -36,6 +36,10 @@ from services.user_preferences import (
 from services.place_recommendations import (
     get_local_place_recommendations,
 )
+from services.decision_engine import (
+    evaluate_decision,
+    get_decision_activity_options,
+)
 from ui.components import (
     apply_theme,
     format_precipitation,
@@ -163,6 +167,101 @@ PERSONAL_OUTFIT_KEY_MAP = {
     "Casual": "casual",
     "Sporty": "sporty",
     "Smart Casual": "smart_casual",
+}
+DECISION_MODE_ACTIVITY_OPTIONS = get_decision_activity_options()
+DECISION_MODE_DEFAULT_ACTIVITY = DECISION_MODE_ACTIVITY_OPTIONS[0]["key"]
+DECISION_MODE_ACTIVITY_LABEL_MAP = {item["key"]: item["label"] for item in DECISION_MODE_ACTIVITY_OPTIONS}
+DECISION_MODE_ACTIVITY_QUESTION_MAP = {item["key"]: item["question"] for item in DECISION_MODE_ACTIVITY_OPTIONS}
+DECISION_MODE_ACTIVITY_ICON_MAP = {
+    "run": "\U0001f3c3",
+    "walk": "\U0001f6b6",
+    "workout": "\U0001f4aa",
+    "beach": "\U0001f3d6\ufe0f",
+    "errands": "\U0001f6cd\ufe0f",
+    "study": "\U0001f4da",
+    "jacket": "\U0001f9e5",
+    "umbrella": "\u2602\ufe0f",
+    "windows": "\U0001fa9f",
+    "travel": "\U0001f698",
+}
+SMART_DECISION_ACTIVITY_KEYS = ["walk", "run", "workout", "beach", "errands", "study", "jacket", "umbrella", "windows", "travel"]
+SMART_DECISION_FOCUS_MAP = {
+    "walking": "walk",
+    "running": "run",
+    "outdoor_tasks": "errands",
+    "studying_outside": "study",
+}
+DECISION_MODE_QUESTION_VARIANTS = {
+    "run": [
+        "Should I go for a run now?",
+        "Can I run outside right now?",
+        "Is now a good time for a jog?",
+        "Would an outdoor run feel comfortable?",
+        "Should I run later today?",
+    ],
+    "walk": [
+        "Is it a good time to walk outside?",
+        "Can I go for a walk now?",
+        "Would a walk feel nice right now?",
+        "Is it walk-friendly outside?",
+        "Is it comfortable to be outside right now?",
+    ],
+    "workout": [
+        "Is it a good time for an outdoor workout?",
+        "Can I exercise outside right now?",
+        "Is now good for outdoor training?",
+        "Would a workout outside feel okay?",
+        "Should I do my workout later?",
+    ],
+    "beach": [
+        "Is today good for the beach?",
+        "Is it beach weather right now?",
+        "Should I head to the beach today?",
+        "Would the beach feel nice later?",
+        "Is it a good beach day today?",
+    ],
+    "errands": [
+        "Is it a good time to run errands?",
+        "Can I go out for errands now?",
+        "Will it be easy to get around right now?",
+        "Is now a good time for outdoor chores?",
+        "Should I wait before running errands?",
+    ],
+    "study": [
+        "Is it a good time to study outside?",
+        "Can I sit outside and study now?",
+        "Would outdoor study feel comfortable?",
+        "Is now good for reading outside?",
+        "Should I move my study session outdoors?",
+    ],
+    "jacket": [
+        "Should I wear a jacket?",
+        "What should I wear today?",
+        "Do I need a jacket right now?",
+        "Should I bring a light layer?",
+        "Will I feel cold outside?",
+    ],
+    "umbrella": [
+        "Should I use an umbrella?",
+        "Do I need an umbrella today?",
+        "Should I bring rain protection?",
+        "Is it going to rain enough for an umbrella?",
+        "Will I get wet outside right now?",
+    ],
+    "windows": [
+        "Is it a good time to open the windows?",
+        "Can I open the windows right now?",
+        "Should I air out the room now?",
+        "Is the air okay for open windows?",
+        "Should the windows stay closed right now?",
+    ],
+    "travel": [
+        "Is it comfortable to drive or travel right now?",
+        "Is now okay for driving?",
+        "Will travel feel smooth right now?",
+        "Should I wait before heading out?",
+        "Is it safe to drive comfortably now?",
+    ],
 }
 PERSONALIZATION_PROMPT_PENDING = "pending"
 PERSONALIZATION_PROMPT_SAVED = "saved"
@@ -1467,11 +1566,14 @@ def build_local_highlight_recommendations(weather_to_show, time_context=None):
     return get_local_place_recommendations(latitude, longitude, city_label, mode_key=mode_key, max_items=4)
 
 
-def build_clothing_quick_read(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit, personalization=None):
+def build_clothing_quick_read(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit, personalization=None, decision_support=None):
     personalization = get_personalization_profile(personalization)
     snapshot = resolve_context_snapshot(weather_to_show, time_context)
     current_temp_text = format_temperature_text(snapshot["temperature"], temp_symbol, use_fahrenheit)
     shift_text = describe_temperature_shift(time_context, temp_symbol, use_fahrenheit)
+    decision_support = decision_support or {}
+    jacket_result = (decision_support.get("wear") or {}) if isinstance(decision_support, dict) else {}
+    umbrella_result = (decision_support.get("rain") or {}) if isinstance(decision_support, dict) else {}
 
     extras = []
     if snapshot["rain_chance"] >= 45 or snapshot["rain_total"] >= 0.2:
@@ -1493,15 +1595,21 @@ def build_clothing_quick_read(weather_to_show, time_context, temp_symbol, speed_
         "I run cold": "Since you tend to run cold, lean one layer warmer.",
         "I run warm": "Since you tend to run warm, keep bulk under control.",
     }.get(personalization["temperature_preference"], "")
+    wear_body = build_decision_summary_text(jacket_result, max_length=116) if jacket_result else ""
+    if not wear_body:
+        wear_body = f"Dress around {snapshot['condition'].lower()} conditions near {current_temp_text}."
+    next_body = f"{time_context['next_phase_reference'].capitalize()}, {shift_text} so your outfit should stay flexible instead of locked to one moment."
+    if umbrella_result:
+        next_body = f"{next_body} {build_decision_summary_text(umbrella_result, max_length=92, include_best_time=True)}".strip()
 
     return [
         {
             "title": "Wear Right Now",
-            "body": f"{time_context['phase_reference'].capitalize()}, dress around {snapshot['condition'].lower()} conditions near {current_temp_text}. {style_note}",
+            "body": f"{wear_body} {style_note}".strip(),
         },
         {
             "title": "What Changes Next",
-            "body": f"{time_context['next_phase_reference'].capitalize()}, {shift_text} so your outfit should stay flexible instead of locked to one moment.",
+            "body": next_body,
         },
         {
             "title": "Keep Ready",
@@ -1743,6 +1851,12 @@ def build_weather_intelligence_payload(weather_to_show, city_to_show, temp_symbo
     condition_display = get_current_condition_display(weather_to_show)
     time_context = build_local_time_context(weather_to_show)
     personalization = get_personalization_profile()
+    decision_support = build_smart_decision_support(
+        weather_to_show,
+        use_fahrenheit,
+        speed_symbol,
+        personalization,
+    )
     routine_scheduler = build_daily_routine_scheduler(
         weather_to_show,
         temp_symbol,
@@ -1784,12 +1898,27 @@ def build_weather_intelligence_payload(weather_to_show, city_to_show, temp_symbo
             {"label": "Wind", "value": format_wind_text(current["wind"], speed_symbol)},
         ],
         "scores": build_weather_score_cards(weather_to_show, time_context, personalization),
-        "alerts": build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context, personalization),
-        "insights": build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context),
+        "decision_support": decision_support,
+        "alerts": (
+            build_decision_alert_items(decision_support)
+            + build_weather_alerts(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context, personalization)
+        )[:2],
+        "insights": (
+            build_decision_insight_cards(decision_support, personalization, time_context)
+            + build_smart_weather_insights(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context)
+        ),
         "routine_scheduler": routine_scheduler,
         "activities": build_activity_recommendations(weather_to_show, temp_symbol, speed_symbol, use_fahrenheit, time_context, routine_scheduler, personalization),
         "clothing": clothing_cards,
-        "clothing_quick_read": build_clothing_quick_read(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit, personalization),
+        "clothing_quick_read": build_clothing_quick_read(
+            weather_to_show,
+            time_context,
+            temp_symbol,
+            speed_symbol,
+            use_fahrenheit,
+            personalization,
+            decision_support,
+        ),
         "clothing_timeline": build_time_slot_clothing_plan(weather_to_show, time_context, temp_symbol, speed_symbol, use_fahrenheit),
     }
 
@@ -1857,6 +1986,111 @@ def get_search_component_recent_entries():
     if current_entry:
         return normalize_recent_searches([current_entry, *recent_entries])
     return normalize_recent_searches(recent_entries)
+
+
+def normalize_decision_question(value):
+    normalized = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+    cleaned = "".join(char.lower() if char.isalnum() else " " for char in normalized)
+    return " ".join(cleaned.split())
+
+
+def build_decision_question_suggestion_entries():
+    entries = []
+    max_variants = max(len(DECISION_MODE_QUESTION_VARIANTS.get(option["key"], [option["question"]])) for option in DECISION_MODE_ACTIVITY_OPTIONS)
+    for variant_index in range(max_variants):
+        for option in DECISION_MODE_ACTIVITY_OPTIONS:
+            activity_key = option["key"]
+            questions = DECISION_MODE_QUESTION_VARIANTS.get(activity_key, [option["question"]])
+            if variant_index >= len(questions):
+                continue
+            icon = DECISION_MODE_ACTIVITY_ICON_MAP.get(activity_key, "\u2601\ufe0f")
+            label = DECISION_MODE_ACTIVITY_LABEL_MAP.get(activity_key, option["label"])
+            question = questions[variant_index]
+            entries.append(
+                {
+                    "label": question,
+                    "query": question,
+                    "meta": f"{icon} {label}",
+                    "activity_key": activity_key,
+                    "canonical_question": option["question"],
+                    "isRecent": False,
+                }
+            )
+    return entries
+
+
+def resolve_decision_activity_from_query(query, fallback_activity=None):
+    normalized_query = normalize_decision_question(query)
+    if not normalized_query:
+        fallback_key = fallback_activity or DECISION_MODE_DEFAULT_ACTIVITY
+        return fallback_key, DECISION_MODE_ACTIVITY_QUESTION_MAP.get(fallback_key, "")
+
+    query_tokens = set(normalized_query.split())
+    best_entry = None
+    best_score = -1
+
+    for entry in build_decision_question_suggestion_entries():
+        normalized_label = normalize_decision_question(entry["label"])
+        label_tokens = set(normalized_label.split())
+        overlap_count = len(query_tokens & label_tokens)
+        score = overlap_count * 6
+        if normalized_query == normalized_label:
+            score += 120
+        elif normalized_query in normalized_label or normalized_label in normalized_query:
+            score += 34
+        if query_tokens and query_tokens.issubset(label_tokens):
+            score += 12
+        if len(normalized_query) >= 5 and normalized_query.replace(" ", "") in normalized_label.replace(" ", ""):
+            score += 10
+        if score > best_score:
+            best_score = score
+            best_entry = entry
+
+    if best_entry and best_score >= 12:
+        return best_entry["activity_key"], best_entry["label"]
+
+    fallback_key = fallback_activity or DECISION_MODE_DEFAULT_ACTIVITY
+    return fallback_key, DECISION_MODE_ACTIVITY_QUESTION_MAP.get(fallback_key, "")
+
+
+def handle_decision_mode_search_event(search_event):
+    if not isinstance(search_event, dict):
+        return None
+
+    event_id = str(search_event.get("event_id") or "").strip()
+    if not event_id:
+        return None
+
+    if st.session_state.get("decision_mode_search_event_id") == event_id:
+        return None
+
+    st.session_state["decision_mode_search_event_id"] = event_id
+    action = str(search_event.get("action") or "").strip().lower()
+    payload = search_event.get("payload") or {}
+    next_query = get_search_display_value(payload)
+
+    if action == "draft":
+        st.session_state["decision_mode_query"] = next_query
+        return None
+
+    if action != "search":
+        return None
+
+    payload_activity = str(payload.get("activity_key") or "").strip().lower()
+    selected_activity = payload_activity if payload_activity in DECISION_MODE_ACTIVITY_LABEL_MAP else None
+    selected_question = next_query
+    if not selected_activity:
+        selected_activity, selected_question = resolve_decision_activity_from_query(
+            next_query,
+            fallback_activity=st.session_state.get("decision_mode_activity", DECISION_MODE_DEFAULT_ACTIVITY),
+        )
+    elif not selected_question:
+        selected_question = DECISION_MODE_ACTIVITY_QUESTION_MAP.get(selected_activity, "")
+
+    st.session_state["decision_mode_query"] = selected_question
+    st.session_state["decision_mode_activity"] = selected_activity
+    st.session_state["decision_mode_selected_question"] = selected_question
+    return selected_activity
 
 
 def get_trip_planner_extra_city_keys(slot_index):
@@ -3975,6 +4209,10 @@ def initialize_session_state():
         "personalization_remind_after": "",
         "show_personalization_dialog": False,
         "personalization_prompt_evaluated": False,
+        "decision_mode_activity": DECISION_MODE_DEFAULT_ACTIVITY,
+        "decision_mode_query": "",
+        "decision_mode_selected_question": DECISION_MODE_ACTIVITY_QUESTION_MAP.get(DECISION_MODE_DEFAULT_ACTIVITY, ""),
+        "decision_mode_search_event_id": "",
         "active_content_section": CONTENT_SECTIONS[0],
         "nav_layout_bootstrap_done": False,
     }
@@ -4772,6 +5010,55 @@ def render_current_conditions_section(weather_to_show, speed_symbol, converted_w
 
 def build_overview_preview_items(intelligence_payload):
     preview_items = []
+    decision_support = intelligence_payload.get("decision_support") or {}
+    clothing_quick_read = intelligence_payload.get("clothing_quick_read") or []
+    focus_result = decision_support.get("focus")
+    best_outdoor = decision_support.get("best_outdoor")
+    rain_result = decision_support.get("rain")
+    wear_result = decision_support.get("wear")
+
+    if focus_result:
+        preview_items.append(
+            {
+                "title": "Your Focus",
+                "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get(focus_result.get("activity_key"), "\U0001f3af"),
+                "body": build_decision_summary_text(focus_result, max_length=96, include_best_time=True),
+            }
+        )
+    elif best_outdoor:
+        preview_items.append(
+            {
+                "title": "Best Outdoor Read",
+                "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get(best_outdoor.get("activity_key"), "\U0001f31f"),
+                "body": build_decision_summary_text(best_outdoor, max_length=96, include_best_time=True),
+            }
+        )
+    if wear_result:
+        preview_items.append(
+            {
+                "title": "What To Wear",
+                "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get("jacket"),
+                "body": build_decision_summary_text(wear_result, max_length=92),
+            }
+        )
+    elif clothing_quick_read:
+        preview_items.append(
+            {
+                "title": "What To Wear",
+                "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get("jacket"),
+                "body": tighten_preview_copy(clothing_quick_read[0]["body"], max_length=92),
+            }
+        )
+    if rain_result and rain_result.get("label") != "Not needed":
+        preview_items.append(
+            {
+                "title": "Rain Decision",
+                "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get("umbrella"),
+                "body": build_decision_summary_text(rain_result, max_length=92, include_best_time=True),
+            }
+        )
+
+    return preview_items[:3]
     activity_items = intelligence_payload.get("activities", [])
     clothing_items = intelligence_payload.get("clothing", [])
     clothing_quick_read = intelligence_payload.get("clothing_quick_read") or []
@@ -4832,6 +5119,627 @@ def render_soft_section_divider(variant="default"):
     st.markdown(f"<div class='{divider_class}'></div>", unsafe_allow_html=True)
 
 
+def get_decision_mode_badge_variant(label):
+    if label in {"Great", "Good", "Not needed"}:
+        return "positive"
+    if label in {"Okay", "Optional / light layer"}:
+        return "neutral"
+    if label in {"Caution", "Maybe carry one", "Recommended"}:
+        return "caution"
+    return "danger"
+
+
+def render_decision_mode_styles():
+    st.markdown(
+        dedent(
+            """
+            <style>
+            .decision-mode-shell {
+                margin-bottom: 0.3rem;
+            }
+            .decision-mode-card {
+                position: relative;
+                overflow: hidden;
+                min-height: 100%;
+            }
+            .decision-mode-card::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background:
+                    radial-gradient(circle at top right, rgba(255,255,255,0.12), transparent 34%),
+                    linear-gradient(135deg, rgba(214, 239, 250, 0.07), transparent 52%);
+                pointer-events: none;
+            }
+            .decision-mode-card > * {
+                position: relative;
+                z-index: 1;
+            }
+            .decision-mode-header {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 0.95rem;
+                flex-wrap: wrap;
+            }
+            .decision-mode-header-copy {
+                flex: 1 1 19rem;
+                min-width: 0;
+            }
+            .decision-mode-title {
+                margin-top: 0.34rem;
+                font-size: 1.24rem;
+                font-weight: 700;
+                line-height: 1.22;
+                color: #f8fbff;
+            }
+            .decision-mode-meta {
+                display: flex;
+                align-items: center;
+                gap: 0.6rem;
+                margin-top: 0.78rem;
+                flex-wrap: wrap;
+            }
+            .decision-mode-time {
+                font-size: 0.78rem;
+                letter-spacing: 0.04em;
+                color: rgba(236, 247, 255, 0.72);
+            }
+            .decision-mode-score {
+                min-width: 8.35rem;
+                padding: 0.9rem 0.94rem 0.95rem;
+                border-radius: 22px;
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.1);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            }
+            .decision-mode-score-label {
+                font-size: 0.7rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                opacity: 0.66;
+            }
+            .decision-mode-score-value {
+                margin-top: 0.34rem;
+                font-size: 2.05rem;
+                line-height: 1;
+                font-weight: 800;
+                color: #f9fbff;
+            }
+            .decision-mode-score-value span {
+                margin-left: 0.16rem;
+                font-size: 0.84rem;
+                opacity: 0.72;
+                font-weight: 600;
+            }
+            .decision-mode-badge {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 1.9rem;
+                padding: 0.34rem 0.78rem;
+                border-radius: 999px;
+                border: 1px solid rgba(255,255,255,0.12);
+                font-size: 0.76rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+            }
+            .decision-mode-badge--positive {
+                background: rgba(151, 236, 196, 0.12);
+                border-color: rgba(151, 236, 196, 0.22);
+                color: #cffcea;
+            }
+            .decision-mode-badge--neutral {
+                background: rgba(255, 230, 152, 0.12);
+                border-color: rgba(255, 230, 152, 0.2);
+                color: #fff2be;
+            }
+            .decision-mode-badge--caution {
+                background: rgba(255, 196, 132, 0.12);
+                border-color: rgba(255, 196, 132, 0.24);
+                color: #ffd9ad;
+            }
+            .decision-mode-badge--danger {
+                background: rgba(255, 141, 141, 0.12);
+                border-color: rgba(255, 141, 141, 0.24);
+                color: #ffd0d0;
+            }
+            .decision-mode-summary {
+                margin-top: 0.92rem;
+                font-size: 0.94rem;
+                line-height: 1.56;
+                color: rgba(246, 251, 255, 0.92);
+            }
+            .decision-mode-best-time {
+                margin-top: 0.8rem;
+                padding: 0.82rem 0.92rem;
+                border-radius: 18px;
+                background: rgba(255,255,255,0.05);
+                border: 1px solid rgba(255,255,255,0.09);
+                box-shadow: inset 2px 0 0 rgba(214, 239, 250, 0.22);
+            }
+            .decision-mode-best-time-label {
+                font-size: 0.7rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                opacity: 0.66;
+            }
+            .decision-mode-best-time-body {
+                margin-top: 0.28rem;
+                font-size: 0.9rem;
+                line-height: 1.48;
+                color: rgba(246, 251, 255, 0.94);
+            }
+            .decision-mode-metrics {
+                margin-top: 0.82rem;
+            }
+            .decision-mode-search-card {
+                margin-bottom: 0.52rem;
+                padding-bottom: 0.08rem;
+            }
+            .decision-mode-search-card .intel-card-body {
+                max-width: none;
+            }
+            .decision-mode-search-note {
+                margin-top: 0.44rem;
+                font-size: 0.8rem;
+                color: rgba(236, 247, 255, 0.68);
+            }
+            div[data-testid="stVerticalBlock"] > div:has(.decision-mode-search-anchor) + div[data-testid="stElementContainer"] {
+                margin-top: -0.08rem;
+                margin-bottom: 0;
+            }
+            div[data-testid="stVerticalBlock"] > div:has(.decision-mode-search-anchor) + div[data-testid="stElementContainer"] iframe {
+                min-height: 76px;
+            }
+            @media (max-width: 900px) {
+                .decision-mode-score {
+                    width: 100%;
+                }
+                div[data-testid="stVerticalBlock"] > div:has(.decision-mode-search-anchor) + div[data-testid="stElementContainer"] iframe {
+                    min-height: 72px;
+                }
+            }
+            </style>
+            """
+        ).strip(),
+        unsafe_allow_html=True,
+    )
+
+
+def build_decision_mode_result_card(decision_result):
+    badge_variant = get_decision_mode_badge_variant(decision_result["label"])
+    activity_key = decision_result.get("activity_key")
+    activity_icon = DECISION_MODE_ACTIVITY_ICON_MAP.get(activity_key, "\u2601\ufe0f")
+    explanation = tighten_preview_copy(str(decision_result["explanation"]), max_length=112)
+    metrics_html = "".join(
+        dedent(
+            f"""
+            <div class="intel-mini-note">
+                <div class="intel-mini-note-label">{escape(str(metric["label"]))}</div>
+                <div class="intel-mini-note-title">{escape(str(metric["value"]))}</div>
+            </div>
+            """
+        ).strip()
+        for metric in decision_result.get("metrics", [])
+    )
+    best_time_html = ""
+    if decision_result.get("best_time"):
+        best_time_html = dedent(
+            f"""
+            <div class="decision-mode-best-time">
+                <div class="decision-mode-best-time-label">Better Window</div>
+                <div class="decision-mode-best-time-body">{escape(tighten_preview_copy(str(decision_result["best_time"]), max_length=88))}</div>
+            </div>
+            """
+        ).strip()
+
+    return dedent(
+        f"""
+        <div class="decision-mode-shell">
+            <div class="intel-card intel-card--insight-readable decision-mode-card">
+                <div class="decision-mode-header">
+                    <div class="decision-mode-header-copy">
+                        <div class="intel-card-kicker">Decision Mode</div>
+                        <div class="decision-mode-title">{escape(activity_icon)} {escape(str(decision_result["question"]))}</div>
+                        <div class="decision-mode-meta">
+                            <span class="decision-mode-badge decision-mode-badge--{escape(badge_variant)}">{escape(str(decision_result["label"]))}</span>
+                            <span class="decision-mode-time">Local time {escape(str(decision_result["local_time_label"]))}</span>
+                        </div>
+                    </div>
+                    <div class="decision-mode-score">
+                        <div class="decision-mode-score-label">Decision Score</div>
+                        <div class="decision-mode-score-value">{escape(str(decision_result["score"]))}<span>/100</span></div>
+                    </div>
+                </div>
+                <div class="decision-mode-summary">{escape(explanation)}</div>
+                {best_time_html}
+                <div class="intel-support-grid intel-support-grid--insight-readable decision-mode-metrics">{metrics_html}</div>
+            </div>
+        </div>
+        """
+    ).strip()
+
+    return dedent(
+        f"""
+        <style>
+        .decision-mode-shell {{
+            margin-bottom: 1rem;
+        }}
+        .decision-mode-card {{
+            position: relative;
+            overflow: hidden;
+        }}
+        .decision-mode-card::before {{
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at top right, rgba(255,255,255,0.12), transparent 34%),
+                linear-gradient(135deg, rgba(214, 239, 250, 0.07), transparent 52%);
+            pointer-events: none;
+        }}
+        .decision-mode-card > * {{
+            position: relative;
+            z-index: 1;
+        }}
+        .decision-mode-header {{
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }}
+        .decision-mode-header-copy {{
+            flex: 1 1 20rem;
+            min-width: 0;
+        }}
+        .decision-mode-title {{
+            margin-top: 0.38rem;
+            font-size: 1.35rem;
+            font-weight: 700;
+            line-height: 1.24;
+            color: #f8fbff;
+        }}
+        .decision-mode-meta {{
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            margin-top: 0.9rem;
+            flex-wrap: wrap;
+        }}
+        .decision-mode-time {{
+            font-size: 0.8rem;
+            letter-spacing: 0.04em;
+            color: rgba(236, 247, 255, 0.72);
+        }}
+        .decision-mode-score {{
+            min-width: 9.4rem;
+            padding: 0.95rem 1rem 1rem;
+            border-radius: 24px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+        }}
+        .decision-mode-score-label {{
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            opacity: 0.66;
+        }}
+        .decision-mode-score-value {{
+            margin-top: 0.42rem;
+            font-size: 2.35rem;
+            line-height: 1;
+            font-weight: 800;
+            color: #f9fbff;
+        }}
+        .decision-mode-score-value span {{
+            margin-left: 0.16rem;
+            font-size: 0.9rem;
+            opacity: 0.72;
+            font-weight: 600;
+        }}
+        .decision-mode-badge {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 2rem;
+            padding: 0.38rem 0.84rem;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.12);
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }}
+        .decision-mode-badge--positive {{
+            background: rgba(151, 236, 196, 0.12);
+            border-color: rgba(151, 236, 196, 0.22);
+            color: #cffcea;
+        }}
+        .decision-mode-badge--neutral {{
+            background: rgba(255, 230, 152, 0.12);
+            border-color: rgba(255, 230, 152, 0.2);
+            color: #fff2be;
+        }}
+        .decision-mode-badge--caution {{
+            background: rgba(255, 196, 132, 0.12);
+            border-color: rgba(255, 196, 132, 0.24);
+            color: #ffd9ad;
+        }}
+        .decision-mode-badge--danger {{
+            background: rgba(255, 141, 141, 0.12);
+            border-color: rgba(255, 141, 141, 0.24);
+            color: #ffd0d0;
+        }}
+        .decision-mode-best-time {{
+            margin-top: 0.95rem;
+            padding: 0.92rem 1rem;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.09);
+            box-shadow: inset 3px 0 0 rgba(214, 239, 250, 0.22);
+        }}
+        .decision-mode-best-time-label {{
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            opacity: 0.66;
+        }}
+        .decision-mode-best-time-body {{
+            margin-top: 0.34rem;
+            font-size: 0.92rem;
+            line-height: 1.65;
+            color: rgba(246, 251, 255, 0.94);
+        }}
+        .decision-mode-helper-card {{
+            margin-bottom: 0.85rem;
+        }}
+        .decision-mode-helper-card .intel-card-body {{
+            max-width: none;
+        }}
+        @media (max-width: 900px) {{
+            .decision-mode-score {{
+                width: 100%;
+            }}
+        }}
+        </style>
+        <div class="decision-mode-shell">
+            <div class="intel-card intel-card--insight-readable decision-mode-card">
+                <div class="decision-mode-header">
+                    <div class="decision-mode-header-copy">
+                        <div class="intel-card-kicker">Decision Mode</div>
+                        <div class="decision-mode-title">{escape(activity_icon)} {escape(str(decision_result["question"]))}</div>
+                        <div class="decision-mode-meta">
+                            <span class="decision-mode-badge decision-mode-badge--{escape(badge_variant)}">{escape(str(decision_result["label"]))}</span>
+                            <span class="decision-mode-time">Local time {escape(str(decision_result["local_time_label"]))}</span>
+                        </div>
+                    </div>
+                    <div class="decision-mode-score">
+                        <div class="decision-mode-score-label">Decision Score</div>
+                        <div class="decision-mode-score-value">{escape(str(decision_result["score"]))}<span>/100</span></div>
+                    </div>
+                </div>
+                <div class="intel-card-body">{escape(str(decision_result["explanation"]))}</div>
+                {best_time_html}
+                <div class="intel-support-grid intel-support-grid--insight-readable">{metrics_html}</div>
+            </div>
+        </div>
+        """
+    ).strip()
+
+
+def render_decision_mode_section(weather_to_show, use_fahrenheit, speed_symbol):
+    render_decision_mode_styles()
+    render_insight_section_header(
+        "Decision Mode",
+        "Direct answers from current conditions and the next few hours.",
+        "Smart Assistant",
+    )
+
+    options = [item["key"] for item in DECISION_MODE_ACTIVITY_OPTIONS]
+    selected_activity = st.session_state.get("decision_mode_activity", DECISION_MODE_DEFAULT_ACTIVITY)
+    if selected_activity not in options:
+        selected_activity = DECISION_MODE_DEFAULT_ACTIVITY
+        st.session_state["decision_mode_activity"] = selected_activity
+
+    decision_columns = st.columns([1.02, 1.55], gap="medium")
+    with decision_columns[0]:
+        st.markdown(
+            dedent(
+                """
+                <div class="intel-card intel-card--insight-readable decision-mode-search-card">
+                    <div class="intel-card-kicker">Smart Decision Assistant</div>
+                    <div class="intel-card-title">Ask a weather question</div>
+                    <div class="intel-card-body">Type a practical question.</div>
+                </div>
+                """
+            ).strip(),
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div class='decision-mode-search-anchor'></div>", unsafe_allow_html=True)
+        decision_search_event = SEARCH_COMPONENT(
+            initial_value=st.session_state.get("decision_mode_query", ""),
+            recent_searches=build_decision_question_suggestion_entries(),
+            placeholder="Ask about running, jackets, umbrellas, beach plans...",
+            enable_geolocation=False,
+            emit_drafts=True,
+            disable_remote_search=True,
+            recent_limit=10,
+            compact=True,
+            variant="decision",
+            empty_message="No match yet. Try run now, wear today, umbrella, beach, or open windows.",
+            key="decision_mode_question_search_component",
+            default=None,
+        )
+        updated_activity = handle_decision_mode_search_event(decision_search_event)
+        if updated_activity in options:
+            selected_activity = updated_activity
+        st.markdown(
+            "<div class='decision-mode-search-note'>Try: wear today, run now, beach later, umbrella, open windows.</div>",
+            unsafe_allow_html=True,
+        )
+
+    with decision_columns[1]:
+        decision_result = evaluate_decision(
+            selected_activity,
+            weather_to_show,
+            use_fahrenheit=use_fahrenheit,
+            speed_unit=speed_symbol,
+            personalization=get_personalization_profile(),
+        )
+        decision_result["question"] = st.session_state.get(
+            "decision_mode_selected_question",
+            DECISION_MODE_ACTIVITY_QUESTION_MAP.get(selected_activity, ""),
+        )
+        st.markdown(build_decision_mode_result_card(decision_result), unsafe_allow_html=True)
+
+
+def build_decision_summary_text(decision_result, max_length=116, include_best_time=False):
+    if not decision_result:
+        return ""
+    summary = str(decision_result.get("explanation") or "").strip()
+    if include_best_time and decision_result.get("best_time"):
+        summary = f"{summary} {decision_result['best_time']}".strip()
+    return tighten_preview_copy(summary, max_length=max_length)
+
+
+def build_smart_decision_support(weather_to_show, use_fahrenheit, speed_symbol, personalization=None):
+    personalization = get_personalization_profile(personalization)
+    decision_results = {}
+    for activity_key in SMART_DECISION_ACTIVITY_KEYS:
+        decision_results[activity_key] = evaluate_decision(
+            activity_key,
+            weather_to_show,
+            use_fahrenheit=use_fahrenheit,
+            speed_unit=speed_symbol,
+            personalization=personalization,
+        )
+
+    focus_key = SMART_DECISION_FOCUS_MAP.get(personalization.get("activity_focus_key"), "walk")
+    focus_result = decision_results.get(focus_key) or decision_results["walk"]
+    best_outdoor_result = max(
+        (decision_results[key] for key in ["walk", "run", "workout", "beach", "errands", "study"]),
+        key=lambda item: item.get("score", 0),
+    )
+
+    watch_result = decision_results["umbrella"]
+    if decision_results["travel"]["score"] <= 49 and decision_results["travel"]["score"] <= watch_result["score"]:
+        watch_result = decision_results["travel"]
+    elif decision_results["windows"]["score"] <= 35 and decision_results["windows"]["score"] < decision_results["travel"]["score"]:
+        watch_result = decision_results["windows"]
+
+    return {
+        "results": decision_results,
+        "focus": focus_result,
+        "best_outdoor": best_outdoor_result,
+        "watch": watch_result,
+        "wear": decision_results["jacket"],
+        "rain": decision_results["umbrella"],
+        "travel": decision_results["travel"],
+        "home": decision_results["windows"],
+        "personalization_summary": describe_personalization_summary(personalization),
+    }
+
+
+def build_decision_alert_items(decision_support):
+    if not decision_support:
+        return []
+
+    alerts = []
+    rain_result = decision_support.get("rain")
+    travel_result = decision_support.get("travel")
+    wear_result = decision_support.get("wear")
+    home_result = decision_support.get("home")
+
+    if rain_result and rain_result.get("label") in {"Recommended", "Maybe carry one"}:
+        alerts.append(
+            {
+                "tone": "info",
+                "icon": "\u2602\ufe0f",
+                "title": "Rain gear decision is active",
+                "body": build_decision_summary_text(rain_result, max_length=92, include_best_time=True),
+            }
+        )
+
+    if travel_result and travel_result.get("score", 0) <= 49:
+        alerts.append(
+            {
+                "tone": "warning",
+                "icon": "\U0001f698",
+                "title": "Travel needs a cleaner read",
+                "body": build_decision_summary_text(travel_result, max_length=92, include_best_time=True),
+            }
+        )
+
+    if wear_result and wear_result.get("label") == "Recommended":
+        alerts.append(
+            {
+                "tone": "notice",
+                "icon": "\U0001f9e5",
+                "title": "Outer layer is worth it",
+                "body": build_decision_summary_text(wear_result, max_length=92),
+            }
+        )
+
+    if home_result and home_result.get("score", 0) <= 35:
+        alerts.append(
+            {
+                "tone": "notice",
+                "icon": "\U0001fa9f",
+                "title": "Keep windows closed for now",
+                "body": build_decision_summary_text(home_result, max_length=92, include_best_time=True),
+            }
+        )
+
+    return alerts[:2]
+
+
+def build_decision_insight_cards(decision_support, personalization, time_context=None):
+    if not decision_support:
+        return []
+
+    personalization = get_personalization_profile(personalization)
+    time_context = time_context or {}
+    focus_result = decision_support.get("focus")
+    wear_result = decision_support.get("wear")
+    watch_result = decision_support.get("watch")
+    cards = []
+
+    if focus_result:
+        focus_label = PERSONAL_ROUTINE_TITLE_MAP.get(personalization.get("activity_focus_key"), "Right Now")
+        cards.append(
+            {
+                "eyebrow": "Decision Layer",
+                "title": f"{focus_label}: {focus_result['label']}",
+                "body": build_decision_summary_text(focus_result, max_length=102, include_best_time=True),
+                "icon": DECISION_MODE_ACTIVITY_ICON_MAP.get(focus_result.get("activity_key"), "\U0001f4a1"),
+            }
+        )
+
+    if wear_result and watch_result:
+        cards.append(
+            {
+                "eyebrow": "Action Pair",
+                "title": "Wear + Home",
+                "body": " ".join(
+                    filter(
+                        None,
+                        [
+                            build_decision_summary_text(wear_result, max_length=68),
+                            build_decision_summary_text(watch_result, max_length=68, include_best_time=True),
+                        ],
+                    )
+                ).strip(),
+                "icon": "\U0001f9ed",
+            }
+        )
+
+    return cards[:2]
+
+
 def build_insights_quick_read_items(intelligence_payload):
     quick_items = []
     insights = intelligence_payload.get("insights", [])
@@ -4884,6 +5792,30 @@ def build_insights_quick_read_items(intelligence_payload):
 
 def build_activities_quick_read_items(intelligence_payload):
     quick_items = []
+    decision_support = intelligence_payload.get("decision_support") or {}
+    personalization = get_personalization_profile(intelligence_payload.get("personalization"))
+    focus_result = decision_support.get("focus")
+    walk_result = (decision_support.get("results") or {}).get("walk")
+    run_result = (decision_support.get("results") or {}).get("run")
+    travel_result = decision_support.get("travel")
+    home_result = decision_support.get("home")
+
+    if focus_result:
+        focus_title = PERSONAL_ROUTINE_TITLE_MAP.get(personalization.get("activity_focus_key"), "Your Focus")
+        quick_items.append({
+            "title": focus_title,
+            "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get(focus_result.get("activity_key"), "\U0001f3af"),
+            "body": build_decision_summary_text(focus_result, max_length=94, include_best_time=True),
+        })
+    if walk_result:
+        quick_items.append({"title": "Walking", "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get("walk"), "body": build_decision_summary_text(walk_result, max_length=94, include_best_time=True)})
+    if run_result:
+        quick_items.append({"title": "Outdoor Effort", "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get("run"), "body": build_decision_summary_text(run_result, max_length=94, include_best_time=True)})
+    if travel_result:
+        quick_items.append({"title": "Travel", "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get("travel"), "body": build_decision_summary_text(travel_result, max_length=94, include_best_time=True)})
+    if home_result:
+        quick_items.append({"title": "Open Windows", "emoji": DECISION_MODE_ACTIVITY_ICON_MAP.get("windows"), "body": build_decision_summary_text(home_result, max_length=94, include_best_time=True)})
+    return quick_items[:4]
     activities = intelligence_payload.get("activities", [])
     activity_map = {item.get("item_id"): item for item in activities}
     routine_items = (intelligence_payload.get("routine_scheduler") or {}).get("summary_items", [])
@@ -4909,7 +5841,7 @@ def build_activities_quick_read_items(intelligence_payload):
 
 def render_overview_tab(weather_to_show, intelligence_payload, city_to_show, temp_symbol, use_fahrenheit):
     time_context = intelligence_payload.get("time_context") or {}
-    render_weather_alert_banner(intelligence_payload.get("alerts", []))
+    render_weather_alert_banner((intelligence_payload.get("alerts") or [])[:2])
     render_soft_section_divider()
     render_insight_section_header(
         "Overview",
@@ -5019,11 +5951,11 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
     render_soft_section_divider()
     render_insight_section_header(
         "Packing / Trip Planner",
-        "Set an optional starting point, choose a destination, and add up to three more comparison cities so the PDF can compare as many as five cities side by side.",
+        "Pick a start, destination, and up to three comparison cities for the PDF export.",
         "Trip Export",
     )
 
-    route_columns = st.columns(2)
+    route_columns = st.columns(2, gap="small")
     with route_columns[0]:
         st.markdown("<div class='intel-card-kicker' style='margin-bottom: 0.35rem;'>Starting Location (Optional)</div>", unsafe_allow_html=True)
         origin_event = SEARCH_COMPONENT(
@@ -5058,7 +5990,7 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
         )
 
     st.markdown("<div class='trip-planner-controls-anchor'></div>", unsafe_allow_html=True)
-    button_columns = st.columns([1.15, 1.15, 4.2], gap="small")
+    button_columns = st.columns([1.08, 1.08, 3.24], gap="small")
     with button_columns[0]:
         if st.button(
             "Add City",
@@ -5205,17 +6137,19 @@ def render_trip_planner_section(temp_symbol, speed_symbol, use_fahrenheit):
 def render_activities_tab(weather_to_show, intelligence_payload, temp_symbol, speed_symbol, use_fahrenheit):
     time_context = intelligence_payload.get("time_context") or {}
     local_highlights = build_local_highlight_recommendations(weather_to_show, time_context)
-    render_insight_section_header(
-        "Activity Recommendations",
-        f"This keeps the activity view compact for {time_context.get('phase_reference', 'right now')}: one quick recommendation block, nearby places, and the trip planner without the extra duplicate guidance section.",
-        "Move Smart",
-    )
-    quick_items = build_activities_quick_read_items(intelligence_payload)
-    if quick_items:
+    activity_items = intelligence_payload.get("activities") or []
+    render_decision_mode_section(weather_to_show, use_fahrenheit, speed_symbol)
+    if activity_items:
+        render_soft_section_divider()
+        render_insight_section_header(
+            "Activity Recommendations",
+            f"Practical movement and outing reads for {time_context.get('phase_reference', 'right now')}, kept separate from the one-question Decision Mode answer above.",
+            "Move Smart",
+        )
         render_recommendation_card(
-            "Activity quick read",
-            "Fast Scan",
-            quick_items,
+            "Activity recommendations",
+            "Move Smart",
+            activity_items,
             style_variant="insight-readable",
         )
     if local_highlights:
@@ -5270,6 +6204,7 @@ def build_compare_time_summary(primary_weather, secondary_weather, temp_symbol, 
     return [
         {
             "title": "Local Time Split",
+            "emoji": "\U0001f557",
             "body": (
                 f"{primary_city} is at {primary_context['local_time_label']} ({primary_context['phase_reference']}) while "
                 f"{secondary_city} is at {secondary_context['local_time_label']} ({secondary_context['phase_reference']})."
@@ -5277,6 +6212,7 @@ def build_compare_time_summary(primary_weather, secondary_weather, temp_symbol, 
         },
         {
             "title": "Immediate Outdoor Edge",
+            "emoji": "\u2728",
             "body": (
                 f"For {personalization['preferred_time'].lower()} plans, {edge_city} has the cleaner immediate outdoor setup."
                 if personalization.get("preferred_time_key")
@@ -5285,6 +6221,7 @@ def build_compare_time_summary(primary_weather, secondary_weather, temp_symbol, 
         },
         {
             "title": "Next Shift",
+            "emoji": "\U0001f501",
             "body": f"{primary_city} next leans into {primary_context['next_phase_reference']}, while {secondary_city} moves toward {secondary_context['next_phase_reference']}.",
         },
     ]
@@ -5350,7 +6287,7 @@ def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol,
         st.session_state["compare_primary_city_selection"] = build_weather_search_entry(weather_to_show, meta="Current city")
         st.session_state["compare_primary_weather"] = weather_to_show
 
-    input_columns = st.columns(2)
+    input_columns = st.columns(2, gap="small")
     with input_columns[0]:
         primary_event = SEARCH_COMPONENT(
             initial_value=st.session_state.get("compare_primary_city_query", ""),
@@ -5384,7 +6321,12 @@ def render_compare_tab(weather_to_show, city_to_show, temp_symbol, speed_symbol,
         )
         secondary_query = st.session_state.get("compare_secondary_city_query", "")
 
-    if st.button("Compare Cities", key="compare_city_button", type="secondary", use_container_width=False):
+    st.markdown("<div class='compare-controls-anchor'></div>", unsafe_allow_html=True)
+    compare_button_columns = st.columns([1.2, 4.8], gap="small")
+    with compare_button_columns[0]:
+        compare_triggered = st.button("Compare Cities", key="compare_city_button", type="secondary", use_container_width=True)
+
+    if compare_triggered:
         if not primary_query.strip() or not secondary_query.strip():
             st.warning("Enter both cities to compare.")
         else:
@@ -5856,8 +6798,8 @@ def render_forecast_section(
           }}
           .forecast-list {{
             border-radius: 28px;
-            padding: 1rem 1.1rem 1.22rem;
-            margin-top: 0.65rem;
+            padding: 0.92rem 1.02rem 0.82rem;
+            margin-top: 0.48rem;
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
             border: 1px solid rgba(255, 255, 255, 0.14);
             box-shadow: none;
@@ -5996,10 +6938,11 @@ def render_forecast_section(
                 position: relative;
                 width: min(84vw, 920px);
                 max-width: min(84vw, 920px);
+                min-height: min(80vh, 756px);
                 max-height: 92vh;
                 overflow-y: auto;
                 border-radius: 30px;
-                padding: 1.95rem 1rem 1rem;
+                padding: 3.06rem 1.22rem 1.04rem;
                 background: linear-gradient(180deg, rgba(120, 154, 187, 0.18), rgba(17, 43, 72, 0.28));
                 border: 1px solid rgba(255,255,255,0.16);
                 box-shadow: 0 24px 58px rgba(4, 15, 32, 0.26);
@@ -6013,20 +6956,20 @@ def render_forecast_section(
               }}
               .skyline-forecast-close {{
                 position: absolute;
-                top: 0.7rem;
-                right: 0.95rem;
+                top: 0.86rem;
+                right: 0.86rem;
                 border-radius: 999px;
-                width: 2.15rem;
-                height: 2.15rem;
-                min-width: 2.15rem;
+                width: 1.56rem;
+                height: 1.56rem;
+                min-width: 1.56rem;
                 padding: 0;
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
                 border: 1px solid rgba(255,255,255,0.14);
-                background: rgba(255,255,255,0.06);
+                background: rgba(255,255,255,0.08);
                 color: rgba(242,248,255,0.82);
-                font-size: 1.1rem;
+                font-size: 0.82rem;
                 line-height: 1;
                 cursor: pointer;
                 box-shadow: 0 8px 20px rgba(4, 15, 32, 0.14);
@@ -6036,7 +6979,7 @@ def render_forecast_section(
                 color: #f8fbff;
               }}
               .skyline-forecast-dialog-shell {{
-                padding-top: 0.45rem;
+                padding-top: 0.04rem;
               }}
               .skyline-forecast-dialog-hero {{
                 display: grid;
@@ -6186,7 +7129,8 @@ def render_forecast_section(
                 .skyline-forecast-card {{
                   width: min(95vw, 760px);
                   max-width: min(95vw, 760px);
-                  padding: 1.65rem 0.85rem 0.85rem;
+                  min-height: auto;
+                  padding: 2.7rem 0.98rem 0.9rem;
                 }}
               }}
             `;
@@ -6197,7 +7141,7 @@ def render_forecast_section(
 
           const resizeFrame = () => {{
             const listHeight = forecastList ? Math.ceil(forecastList.getBoundingClientRect().height) : 0;
-            const height = Math.max(listHeight + 28, 308);
+            const height = Math.max(listHeight + 18, 292);
             hostWindow.postMessage({{ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height }}, "*");
           }};
 
@@ -6279,7 +7223,7 @@ def render_forecast_section(
           resizeFrame();
         </script>
         """,
-        height=max(308, 116 + (len(row_markup) * 48)),
+        height=max(292, 108 + (len(row_markup) * 46)),
     )
 
 
@@ -6325,34 +7269,70 @@ def get_hourly_outlook_icon(condition, is_day):
     return get_condition_icon(condition)
 
 
-def build_hourly_outlook_items(weather_to_show, use_fahrenheit, temp_symbol):
-    forecast = (weather_to_show or {}).get("forecast") or []
-    if not forecast:
-        return []
+def build_hourly_outlook_modal_markup(point_dt, point, detail_day_label, detail_time_label, temp_symbol, speed_symbol, use_fahrenheit):
+    is_day = point.get("is_day")
+    if is_day is None:
+        is_day = 6 <= point_dt.hour < 18
 
-    hourly_points = []
-    for day in forecast:
-        for point in day.get("hourly") or []:
-            try:
-                if point.get("time_iso"):
-                    point_dt = datetime.fromisoformat(point["time_iso"])
-                else:
-                    point_dt = datetime.strptime(
-                        f"{point['date']} {point['time']}",
-                        "%Y-%m-%d %I:%M %p",
-                    )
-            except (KeyError, TypeError, ValueError):
-                continue
-            hourly_points.append((point_dt, point))
+    condition_icon = get_hourly_outlook_icon(point["condition"], is_day)
+    temperature_label = format_temperature_text(point["temperature"], temp_symbol, use_fahrenheit)
+    rain_chance = int(round(point.get("rain_chance") or 0))
+    humidity = int(round(point.get("humidity") or 0))
+    wind_label = format_wind_text(point.get("wind", 0), speed_symbol)
+    stats = [
+        ("Temperature", temperature_label),
+        ("Rain chance", f"{rain_chance}%"),
+        ("Humidity", f"{humidity}%"),
+        ("Wind", wind_label),
+    ]
+    stats_html = "".join(
+        dedent(
+            f"""
+            <div class="skyline-hourly-modal-stat">
+                <div class="skyline-hourly-modal-stat-label">{escape(str(label))}</div>
+                <div class="skyline-hourly-modal-stat-value">{escape(str(value))}</div>
+            </div>
+            """
+        ).strip()
+        for label, value in stats
+    )
+    story_copy = (
+        f"{point['condition']} conditions with a {rain_chance}% rain chance, "
+        f"{humidity}% humidity, and {wind_label} wind."
+    )
 
+    return dedent(
+        f"""
+        <div class="skyline-hourly-modal-shell">
+            <div class="skyline-hourly-modal-hero">
+                <div class="skyline-hourly-modal-main">
+                    <div class="skyline-hourly-modal-kicker">Hourly detail</div>
+                    <div class="skyline-hourly-modal-title">{escape(detail_time_label)}</div>
+                    <div class="skyline-hourly-modal-meta">{escape(detail_day_label)}</div>
+                    <div class="skyline-hourly-modal-condition">{escape(condition_icon)} {escape(point["condition"])}</div>
+                </div>
+                <div class="skyline-hourly-modal-temp">
+                    <div class="skyline-hourly-modal-kicker">Temperature</div>
+                    <div class="skyline-hourly-modal-temp-value">{escape(temperature_label)}</div>
+                </div>
+            </div>
+            <div class="skyline-hourly-modal-story">{escape(story_copy)}</div>
+            <div class="skyline-hourly-modal-grid">{stats_html}</div>
+        </div>
+        """
+    ).strip()
+
+
+def build_hourly_outlook_items(weather_to_show, use_fahrenheit, temp_symbol, speed_symbol):
+    hourly_points = collect_hourly_forecast_points(weather_to_show, limit_days=3)
     if not hourly_points:
         return []
 
-    hourly_points.sort(key=lambda item: item[0])
     local_now = get_weather_local_now(weather_to_show)
     if hourly_points and hourly_points[0][0].tzinfo is None and local_now.tzinfo is not None:
         local_now = local_now.replace(tzinfo=None)
     current_hour = local_now.replace(minute=0, second=0, microsecond=0)
+    tomorrow_date = current_hour.date() + timedelta(days=1)
     window_end = (current_hour + timedelta(days=2)).replace(hour=1, minute=0, second=0, microsecond=0)
     upcoming_points = [
         (point_dt, point)
@@ -6370,17 +7350,21 @@ def build_hourly_outlook_items(weather_to_show, use_fahrenheit, temp_symbol):
         is_day = point.get("is_day")
         if is_day is None:
             is_day = 6 <= point_dt.hour < 18
-        time_label = point_dt.strftime("%I%p").lstrip("0")
-        if index == 0 and point_dt.date() == current_hour.date() and point_dt.hour == current_hour.hour:
-            time_label = "Now"
+        is_now = index == 0 and point_dt.date() == current_hour.date() and point_dt.hour == current_hour.hour
+        time_label = "Now" if is_now else point_dt.strftime("%I%p").lstrip("0")
 
         day_marker = ""
         if last_date is not None and point_dt.date() != last_date:
-            if point_dt.date() == current_hour.date() + timedelta(days=1):
-                day_marker = "Tomorrow"
-            else:
-                day_marker = point_dt.strftime("%a")
+            day_marker = "Tomorrow" if point_dt.date() == tomorrow_date else point_dt.strftime("%a")
 
+        if point_dt.date() == current_hour.date():
+            detail_day_label = f"Today | {point_dt.strftime('%b %d')}"
+        elif point_dt.date() == tomorrow_date:
+            detail_day_label = f"Tomorrow | {point_dt.strftime('%b %d')}"
+        else:
+            detail_day_label = point_dt.strftime("%a, %b %d")
+
+        detail_time_label = point_dt.strftime("%I:%M %p").lstrip("0")
         items.append(
             {
                 "time_label": time_label,
@@ -6388,10 +7372,19 @@ def build_hourly_outlook_items(weather_to_show, use_fahrenheit, temp_symbol):
                 "icon": get_hourly_outlook_icon(point["condition"], is_day),
                 "temp_label": f"{rounded_temp}\u00b0",
                 "condition": point["condition"],
-                "is_now": index == 0 and time_label == "Now",
+                "is_now": is_now,
                 "aria_label": (
                     f"{point_dt.strftime('%a %I %p').replace(' 0', ' ')}. "
                     f"{point['condition']}. {rounded_temp}{temp_symbol.strip()}."
+                ),
+                "modal_markup": build_hourly_outlook_modal_markup(
+                    point_dt,
+                    point,
+                    detail_day_label,
+                    detail_time_label,
+                    temp_symbol,
+                    speed_symbol,
+                    use_fahrenheit,
                 ),
             }
         )
@@ -6400,8 +7393,8 @@ def build_hourly_outlook_items(weather_to_show, use_fahrenheit, temp_symbol):
     return items
 
 
-def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, instance_id="main"):
-    items = build_hourly_outlook_items(weather_to_show, use_fahrenheit, temp_symbol)
+def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, speed_symbol, instance_id="main"):
+    items = build_hourly_outlook_items(weather_to_show, use_fahrenheit, temp_symbol, speed_symbol)
     if not items:
         return False
 
@@ -6486,18 +7479,17 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
           }}
           .skyline-hourly-stage {{
             position: relative;
-            padding: 0 1.92rem;
+            padding: 0 2.16rem;
+            margin-top: 0.14rem;
           }}
           .skyline-hourly-track-shell {{
             position: relative;
-            border-radius: 18px;
+            border-radius: 20px;
             overflow: hidden;
-            padding: 0;
-            background: transparent;
-            border: 0;
-            box-shadow: none;
-            -webkit-mask-image: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 1.05rem, rgba(0,0,0,1) calc(100% - 1.05rem), rgba(0,0,0,0) 100%);
-            mask-image: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 1.05rem, rgba(0,0,0,1) calc(100% - 1.05rem), rgba(0,0,0,0) 100%);
+            padding: 0.08rem 0.18rem;
+            background: rgba(255,255,255,0.025);
+            border: 1px solid rgba(255,255,255,0.05);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
           }}
           .skyline-hourly-track {{
             display: flex;
@@ -6506,8 +7498,26 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             overflow-y: hidden;
             scroll-behavior: smooth;
             scroll-snap-type: x proximity;
-            padding: 0.08rem 0 0.16rem;
+            padding: 0.08rem 0 0.18rem;
             scrollbar-width: none;
+            -webkit-mask-image: linear-gradient(
+              90deg,
+              rgba(0, 0, 0, 0) 0%,
+              rgba(0, 0, 0, 0.18) 0.34rem,
+              rgba(0, 0, 0, 1) 1.02rem,
+              rgba(0, 0, 0, 1) calc(100% - 1.02rem),
+              rgba(0, 0, 0, 0.18) calc(100% - 0.34rem),
+              rgba(0, 0, 0, 0) 100%
+            );
+            mask-image: linear-gradient(
+              90deg,
+              rgba(0, 0, 0, 0) 0%,
+              rgba(0, 0, 0, 0.18) 0.34rem,
+              rgba(0, 0, 0, 1) 1.02rem,
+              rgba(0, 0, 0, 1) calc(100% - 1.02rem),
+              rgba(0, 0, 0, 0.18) calc(100% - 0.34rem),
+              rgba(0, 0, 0, 0) 100%
+            );
           }}
           .skyline-hourly-track::-webkit-scrollbar {{
             display: none;
@@ -6516,7 +7526,7 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             position: relative;
             flex: 0 0 4.35rem;
             min-width: 4.35rem;
-            padding: 0 0.18rem;
+            padding: 0 0.14rem;
             scroll-snap-align: start;
           }}
           .skyline-hourly-divider {{
@@ -6544,6 +7554,7 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
           .skyline-hourly-item {{
             position: relative;
             z-index: 2;
+            width: 100%;
             min-height: 4.78rem;
             border-radius: 18px;
             padding: 0.52rem 0.22rem 0.42rem;
@@ -6552,9 +7563,25 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             align-items: center;
             justify-content: flex-start;
             gap: 0.2rem;
-            background: transparent;
+            background: rgba(255,255,255,0.01);
             border: 1px solid transparent;
             box-shadow: none;
+            cursor: pointer;
+            transition: transform 0.22s ease, background 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+            font: inherit;
+            color: inherit;
+            text-align: center;
+          }}
+          .skyline-hourly-item:hover {{
+            transform: translateY(-1px);
+            background: rgba(255,255,255,0.05);
+            border-color: rgba(214, 239, 250, 0.12);
+            box-shadow: 0 10px 18px rgba(6, 18, 33, 0.1);
+          }}
+          .skyline-hourly-item:focus-visible {{
+            outline: none;
+            border-color: rgba(214, 239, 250, 0.22);
+            box-shadow: 0 0 0 2px rgba(214, 239, 250, 0.18);
           }}
           .skyline-hourly-item-shell.is-now .skyline-hourly-item {{
             background: linear-gradient(180deg, rgba(255,255,255,0.11), rgba(255,255,255,0.04));
@@ -6585,8 +7612,8 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             top: 50%;
             transform: translateY(-50%);
             z-index: 3;
-            width: 1.68rem;
-            height: 1.68rem;
+            width: 1.82rem;
+            height: 1.82rem;
             border-radius: 999px;
             border: 1px solid rgba(255,255,255,0.1);
             background: linear-gradient(180deg, rgba(35, 58, 85, 0.84), rgba(21, 38, 59, 0.8));
@@ -6609,35 +7636,27 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             cursor: default;
           }}
           .skyline-hourly-arrow--left {{
-            left: 0.02rem;
+            left: 0.36rem;
           }}
           .skyline-hourly-arrow--right {{
-            right: 0.02rem;
+            right: 0.36rem;
           }}
           .skyline-hourly-fade {{
-            position: absolute;
-            top: 0.08rem;
-            bottom: 0.12rem;
-            width: 1.48rem;
-            z-index: 2;
-            pointer-events: none;
-            opacity: 0.74;
-            transition: opacity 0.2s ease;
-            backdrop-filter: blur(10px);
+            display: none !important;
           }}
           .skyline-hourly-fade--left {{
-            left: 1.68rem;
+            left: 2rem;
             border-radius: 18px 0 0 18px;
             background:
-              linear-gradient(90deg, rgba(12, 22, 37, 0.18) 0%, rgba(12, 22, 37, 0.08) 46%, rgba(12, 22, 37, 0) 100%),
-              linear-gradient(90deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 40%, rgba(255,255,255,0) 100%);
+              linear-gradient(90deg, rgba(12, 22, 37, 0.2) 0%, rgba(12, 22, 37, 0.07) 56%, rgba(12, 22, 37, 0) 100%),
+              linear-gradient(90deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 38%, rgba(255,255,255,0) 100%);
           }}
           .skyline-hourly-fade--right {{
-            right: 1.68rem;
+            right: 2rem;
             border-radius: 0 18px 18px 0;
             background:
-              linear-gradient(270deg, rgba(12, 22, 37, 0.18) 0%, rgba(12, 22, 37, 0.08) 46%, rgba(12, 22, 37, 0) 100%),
-              linear-gradient(270deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 40%, rgba(255,255,255,0) 100%);
+              linear-gradient(270deg, rgba(12, 22, 37, 0.2) 0%, rgba(12, 22, 37, 0.07) 56%, rgba(12, 22, 37, 0) 100%),
+              linear-gradient(270deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 38%, rgba(255,255,255,0) 100%);
           }}
           @media (max-width: 900px) {{
             .skyline-hourly-shell {{
@@ -6647,11 +7666,11 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
               font-size: 0.76rem;
             }}
             .skyline-hourly-stage {{
-              padding-left: 1.72rem;
-              padding-right: 1.72rem;
+              padding-left: 1.86rem;
+              padding-right: 1.86rem;
             }}
             .skyline-hourly-fade {{
-              width: 1.34rem;
+              width: 1rem;
             }}
             .skyline-hourly-item-shell {{
               flex-basis: 4rem;
@@ -6660,15 +7679,41 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             .skyline-hourly-item {{
               min-height: 4.5rem;
             }}
+            .skyline-hourly-track {{
+              -webkit-mask-image: linear-gradient(
+                90deg,
+                rgba(0, 0, 0, 0) 0%,
+                rgba(0, 0, 0, 0.16) 0.24rem,
+                rgba(0, 0, 0, 1) 0.82rem,
+                rgba(0, 0, 0, 1) calc(100% - 0.82rem),
+                rgba(0, 0, 0, 0.16) calc(100% - 0.24rem),
+                rgba(0, 0, 0, 0) 100%
+              );
+              mask-image: linear-gradient(
+                90deg,
+                rgba(0, 0, 0, 0) 0%,
+                rgba(0, 0, 0, 0.16) 0.24rem,
+                rgba(0, 0, 0, 1) 0.82rem,
+                rgba(0, 0, 0, 1) calc(100% - 0.82rem),
+                rgba(0, 0, 0, 0.16) calc(100% - 0.24rem),
+                rgba(0, 0, 0, 0) 100%
+              );
+            }}
             .skyline-hourly-fade--left {{
-              left: 1.52rem;
+              left: 1.74rem;
             }}
             .skyline-hourly-fade--right {{
-              right: 1.52rem;
+              right: 1.74rem;
             }}
           }}
         </style>
         <script>
+          const hourlyInstanceId = {json.dumps(instance_id)};
+          const cleanupKey = `__skylineHourlyCleanup_${{hourlyInstanceId}}`;
+          if (window[cleanupKey]) {{
+            window[cleanupKey]();
+          }}
+
           const payload = {json.dumps(items, ensure_ascii=False)};
           const root = document.getElementById({json.dumps(component_id)});
           const track = root.querySelector(".skyline-hourly-track");
@@ -6676,23 +7721,267 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
           const nextButton = root.querySelector('[data-direction="next"]');
           const leftFade = root.querySelector(".skyline-hourly-fade--left");
           const rightFade = root.querySelector(".skyline-hourly-fade--right");
+          const hostWindow = window.parent;
+          const hostDoc = hostWindow.document;
+          const portalId = `skyline-hourly-modal-portal-${{hourlyInstanceId}}`;
+          const styleId = `skyline-hourly-modal-style-${{hourlyInstanceId}}`;
+          let portal = hostDoc.getElementById(portalId);
+          if (!portal) {{
+            portal = hostDoc.createElement("div");
+            portal.id = portalId;
+            hostDoc.body.appendChild(portal);
+          }}
+
+          let style = hostDoc.getElementById(styleId);
+          if (!style) {{
+            style = hostDoc.createElement("style");
+            style.id = styleId;
+            hostDoc.head.appendChild(style);
+          }}
+          style.textContent = `
+            body.skyline-hourly-modal-open {{
+              overflow: hidden;
+            }}
+            #${{portalId}} {{
+              position: fixed;
+              inset: 0;
+              z-index: 9998;
+              pointer-events: none;
+            }}
+            #${{portalId}}.is-open {{
+              pointer-events: auto;
+            }}
+            .skyline-hourly-overlay {{
+              position: absolute;
+              inset: 0;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: clamp(0.9rem, 2vw, 1.45rem);
+            }}
+            .skyline-hourly-backdrop {{
+              position: absolute;
+              inset: 0;
+              background: rgba(6, 16, 28, 0.3);
+              backdrop-filter: blur(8px);
+              animation: skylineHourlyBackdropIn 0.22s ease both;
+            }}
+            .skyline-hourly-overlay.is-closing .skyline-hourly-backdrop {{
+              animation: skylineHourlyBackdropOut 0.18s ease both;
+            }}
+            .skyline-hourly-card {{
+              position: relative;
+              width: min(76vw, 560px);
+              max-width: min(76vw, 560px);
+              min-height: min(66vh, 392px);
+              max-height: 84vh;
+              overflow-y: auto;
+              border-radius: 26px;
+              padding: 2.44rem 1.04rem 1rem;
+              background: linear-gradient(180deg, rgba(120, 154, 187, 0.18), rgba(17, 43, 72, 0.28));
+              border: 1px solid rgba(255,255,255,0.16);
+              box-shadow: 0 24px 58px rgba(4, 15, 32, 0.22);
+              backdrop-filter: blur(22px);
+              color: #f6fbff;
+              transform-origin: top center;
+              animation: skylineHourlyCardIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+            }}
+            .skyline-hourly-overlay.is-closing .skyline-hourly-card {{
+              animation: skylineHourlyCardOut 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+            }}
+            .skyline-hourly-close {{
+              position: absolute;
+              top: 0.8rem;
+              right: 0.8rem;
+              width: 1.52rem;
+              height: 1.52rem;
+              border-radius: 999px;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              border: 1px solid rgba(255,255,255,0.14);
+              background: rgba(255,255,255,0.08);
+              color: rgba(242,248,255,0.82);
+              font-size: 0.8rem;
+              line-height: 1;
+              cursor: pointer;
+              box-shadow: 0 8px 20px rgba(4, 15, 32, 0.14);
+            }}
+            .skyline-hourly-close:hover {{
+              background: rgba(255,255,255,0.1);
+              color: #f8fbff;
+            }}
+            .skyline-hourly-modal-shell {{
+              padding-top: 0.04rem;
+            }}
+            .skyline-hourly-modal-hero {{
+              display: grid;
+              grid-template-columns: minmax(0, 1.1fr) minmax(150px, 0.78fr);
+              gap: 0.7rem;
+              align-items: stretch;
+            }}
+            .skyline-hourly-modal-main,
+            .skyline-hourly-modal-temp,
+            .skyline-hourly-modal-story,
+            .skyline-hourly-modal-grid {{
+              border-radius: 20px;
+              background: rgba(255,255,255,0.065);
+              border: 1px solid rgba(255,255,255,0.08);
+              box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            }}
+            .skyline-hourly-modal-main,
+            .skyline-hourly-modal-temp {{
+              padding: 0.92rem 0.96rem;
+            }}
+            .skyline-hourly-modal-kicker,
+            .skyline-hourly-modal-stat-label {{
+              font-size: 0.72rem;
+              letter-spacing: 0.08em;
+              text-transform: uppercase;
+              opacity: 0.7;
+            }}
+            .skyline-hourly-modal-title {{
+              margin-top: 0.22rem;
+              font-size: clamp(1.55rem, 2.8vw, 2rem);
+              font-weight: 800;
+              line-height: 1;
+            }}
+            .skyline-hourly-modal-meta,
+            .skyline-hourly-modal-condition {{
+              margin-top: 0.34rem;
+              font-size: 0.92rem;
+              opacity: 0.9;
+            }}
+            .skyline-hourly-modal-temp-value {{
+              margin-top: 0.38rem;
+              font-size: clamp(1.55rem, 2.8vw, 2rem);
+              font-weight: 800;
+              line-height: 1;
+            }}
+            .skyline-hourly-modal-story {{
+              margin-top: 0.74rem;
+              padding: 0.78rem 0.88rem;
+              font-size: 0.9rem;
+              line-height: 1.5;
+              opacity: 0.92;
+            }}
+            .skyline-hourly-modal-grid {{
+              margin-top: 0.74rem;
+              padding: 0.78rem 0.88rem;
+              display: grid;
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+              gap: 0.55rem;
+            }}
+            .skyline-hourly-modal-stat {{
+              padding: 0.64rem 0.7rem;
+              border-radius: 16px;
+              background: rgba(255,255,255,0.055);
+              border: 1px solid rgba(255,255,255,0.08);
+            }}
+            .skyline-hourly-modal-stat-value {{
+              margin-top: 0.24rem;
+              font-size: 0.95rem;
+              font-weight: 700;
+            }}
+            @keyframes skylineHourlyBackdropIn {{
+              from {{ opacity: 0; }}
+              to {{ opacity: 1; }}
+            }}
+            @keyframes skylineHourlyBackdropOut {{
+              from {{ opacity: 1; }}
+              to {{ opacity: 0; }}
+            }}
+            @keyframes skylineHourlyCardIn {{
+              from {{
+                opacity: 0;
+                transform: translateY(16px) scale(0.98);
+              }}
+              to {{
+                opacity: 1;
+                transform: translateY(0) scale(1);
+              }}
+            }}
+            @keyframes skylineHourlyCardOut {{
+              from {{
+                opacity: 1;
+                transform: translateY(0) scale(1);
+              }}
+              to {{
+                opacity: 0;
+                transform: translateY(16px) scale(0.98);
+              }}
+            }}
+            @media (max-width: 900px) {{
+              .skyline-hourly-card {{
+                width: min(92vw, 540px);
+                max-width: min(92vw, 540px);
+                min-height: auto;
+                padding: 2.2rem 0.96rem 0.92rem;
+              }}
+              .skyline-hourly-modal-hero,
+              .skyline-hourly-modal-grid {{
+                grid-template-columns: 1fr;
+              }}
+            }}
+          `;
+          let resizeObserver = null;
+          let closeTimer = null;
 
           const cardMarkup = payload.map((item, index) => `
             <div class="skyline-hourly-item-shell${{item.is_now ? " is-now" : ""}}" role="listitem">
               ${{index > 0 ? '<div class="skyline-hourly-divider" aria-hidden="true"></div>' : ""}}
               <div class="skyline-hourly-day-marker">${{item.day_marker || "&nbsp;"}}</div>
-              <div class="skyline-hourly-item" title="${{item.aria_label}}" aria-label="${{item.aria_label}}">
+              <button class="skyline-hourly-item" type="button" data-hour-index="${{index}}" title="${{item.aria_label}}" aria-label="${{item.aria_label}}">
                 <div class="skyline-hourly-time">${{item.time_label}}</div>
                 <div class="skyline-hourly-icon">${{item.icon}}</div>
                 <div class="skyline-hourly-temp">${{item.temp_label}}</div>
-              </div>
+              </button>
             </div>
           `).join("");
           track.innerHTML = cardMarkup;
 
           const setFrameHeight = () => {{
             const height = Math.max(document.body.scrollHeight + 10, 164);
-            window.parent.postMessage({{ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height }}, "*");
+            hostWindow.postMessage({{ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height }}, "*");
+          }};
+
+          const finalizeCloseModal = () => {{
+            if (closeTimer) {{
+              hostWindow.clearTimeout(closeTimer);
+              closeTimer = null;
+            }}
+            portal.classList.remove("is-open");
+            portal.innerHTML = "";
+            hostDoc.body.classList.remove("skyline-hourly-modal-open");
+          }};
+
+          const closeModal = (animate = true) => {{
+            const overlay = portal.querySelector(".skyline-hourly-overlay");
+            if (animate && overlay && !overlay.classList.contains("is-closing")) {{
+              overlay.classList.add("is-closing");
+              closeTimer = hostWindow.setTimeout(() => finalizeCloseModal(), 180);
+              return;
+            }}
+            finalizeCloseModal();
+          }};
+
+          const openModal = (index) => {{
+            const item = payload[index];
+            if (!item || !item.modal_markup) {{
+              return;
+            }}
+
+            portal.innerHTML = `
+              <div class="skyline-hourly-overlay">
+                <div class="skyline-hourly-backdrop" data-close="true"></div>
+                <div class="skyline-hourly-card" role="dialog" aria-modal="true" aria-label="Hourly forecast detail">
+                  <button class="skyline-hourly-close" type="button" data-close="true" aria-label="Close">&times;</button>
+                  ${{item.modal_markup}}
+                </div>
+              </div>
+            `;
+            portal.classList.add("is-open");
+            hostDoc.body.classList.add("skyline-hourly-modal-open");
           }};
 
           const getScrollStep = () => {{
@@ -6710,8 +7999,8 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             const atEnd = track.scrollLeft >= maxScrollLeft - 4;
             prevButton.disabled = atStart;
             nextButton.disabled = atEnd;
-            leftFade.style.opacity = atStart ? "0" : "0.74";
-            rightFade.style.opacity = atEnd ? "0" : "0.74";
+            leftFade.style.opacity = atStart ? "0" : "0.86";
+            rightFade.style.opacity = atEnd ? "0" : "0.86";
             const hasOverflow = maxScrollLeft > 10;
             prevButton.style.display = hasOverflow ? "inline-flex" : "none";
             nextButton.style.display = hasOverflow ? "inline-flex" : "none";
@@ -6719,13 +8008,39 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
             rightFade.style.display = hasOverflow ? "block" : "none";
           }};
 
-          prevButton.addEventListener("click", () => {{
+          const handlePrevClick = () => {{
             track.scrollBy({{ left: -getScrollStep(), behavior: "smooth" }});
-          }});
+          }};
 
-          nextButton.addEventListener("click", () => {{
+          const handleNextClick = () => {{
             track.scrollBy({{ left: getScrollStep(), behavior: "smooth" }});
-          }});
+          }};
+
+          const handleTrackClick = (event) => {{
+            const button = event.target.closest("[data-hour-index]");
+            if (!button) {{
+              return;
+            }}
+            openModal(Number(button.dataset.hourIndex));
+          }};
+
+          const handlePortalClick = (event) => {{
+            if (event.target.closest("[data-close='true']")) {{
+              closeModal(true);
+            }}
+          }};
+
+          const handleEscape = (event) => {{
+            if (event.key === "Escape") {{
+              closeModal(true);
+            }}
+          }};
+
+          prevButton.addEventListener("click", handlePrevClick);
+          nextButton.addEventListener("click", handleNextClick);
+          track.addEventListener("click", handleTrackClick);
+          portal.addEventListener("click", handlePortalClick);
+          hostWindow.addEventListener("keydown", handleEscape);
 
           track.addEventListener("scroll", () => updateControls(), {{ passive: true }});
           track.addEventListener("wheel", (event) => {{
@@ -6737,13 +8052,32 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
           }}, {{ passive: false }});
 
           if (window.ResizeObserver) {{
-            const observer = new ResizeObserver(() => {{
+            resizeObserver = new ResizeObserver(() => {{
               updateControls();
               setFrameHeight();
             }});
-            observer.observe(root);
-            observer.observe(track);
+            resizeObserver.observe(root);
+            resizeObserver.observe(track);
           }}
+
+          window[cleanupKey] = () => {{
+            if (resizeObserver) {{
+              resizeObserver.disconnect();
+              resizeObserver = null;
+            }}
+            prevButton.removeEventListener("click", handlePrevClick);
+            nextButton.removeEventListener("click", handleNextClick);
+            track.removeEventListener("click", handleTrackClick);
+            portal.removeEventListener("click", handlePortalClick);
+            hostWindow.removeEventListener("keydown", handleEscape);
+            closeModal(false);
+            if (portal.parentNode) {{
+              portal.parentNode.removeChild(portal);
+            }}
+            if (style.parentNode) {{
+              style.parentNode.removeChild(style);
+            }}
+          }};
 
           window.setTimeout(() => {{
             updateControls();
@@ -6751,7 +8085,7 @@ def render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, in
           }}, 40);
         </script>
         """,
-        height=170,
+        height=176,
     )
     return True
 
@@ -7107,7 +8441,7 @@ def main():
     render_section_transition(active_section, CONTENT_SECTIONS)
     render_current_conditions_section(weather_to_show, speed_symbol, converted_wind, temp_symbol, use_fahrenheit)
     if active_section == "Overview":
-        if render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, instance_id="overview_main"):
+        if render_hourly_outlook_strip(weather_to_show, use_fahrenheit, temp_symbol, speed_symbol, instance_id="overview_main"):
             render_soft_section_divider()
         else:
             render_soft_section_divider("persistent")

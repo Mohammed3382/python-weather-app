@@ -143,6 +143,55 @@
         border-color: rgba(255,255,255,0.18);
       }
 
+      .search-shell.is-compact .search-control {
+        grid-template-columns: 2.65rem 1fr 3.56rem;
+        min-height: 3.74rem;
+        border-radius: 30px;
+        padding-right: 0.46rem;
+      }
+
+      .search-shell.is-compact .search-input {
+        min-height: 3.74rem;
+        font-size: 0.97rem;
+        padding-right: 0.16rem;
+      }
+
+      .search-shell.is-compact .search-submit {
+        width: 2.5rem;
+        height: 2.5rem;
+      }
+
+      .search-shell.is-decision .search-control {
+        background:
+          linear-gradient(180deg, rgba(236, 246, 255, 0.16), rgba(196, 220, 237, 0.08)),
+          linear-gradient(135deg, rgba(129, 183, 217, 0.16), rgba(255,255,255,0.03));
+        border-color: rgba(214, 239, 250, 0.2);
+        box-shadow:
+          0 14px 34px rgba(4,15,32,0.16),
+          inset 0 1px 0 rgba(255,255,255,0.11);
+      }
+
+      .search-shell.is-decision .search-control::before {
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.08), transparent 16%);
+      }
+
+      .search-shell.is-decision .search-icon {
+        color: rgba(245, 251, 255, 0.82);
+      }
+
+      .search-shell.is-decision .search-submit {
+        border-color: rgba(214, 239, 250, 0.2);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.22), rgba(193, 220, 236, 0.1));
+      }
+
+      .search-shell.is-decision .search-submit:hover {
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.26), rgba(204, 228, 242, 0.12));
+        border-color: rgba(214, 239, 250, 0.24);
+      }
+
       @media (max-width: 760px) {
         .search-panel.is-open .search-control {
           border-radius: 32px;
@@ -158,6 +207,22 @@
         .search-input {
           min-height: 4.18rem;
           font-size: 0.98rem;
+        }
+
+        .search-shell.is-compact .search-control {
+          grid-template-columns: 2.45rem 1fr 3.28rem;
+          min-height: 3.44rem;
+          border-radius: 28px;
+        }
+
+        .search-shell.is-compact .search-input {
+          min-height: 3.44rem;
+          font-size: 0.93rem;
+        }
+
+        .search-shell.is-compact .search-submit {
+          width: 2.34rem;
+          height: 2.34rem;
         }
       }
     </style>
@@ -255,6 +320,21 @@
         } catch (error) {
           return window.localStorage;
         }
+      };
+
+      const isLocalOnlyMode = () =>
+        args.disable_remote_search === true ||
+        String(args.search_mode || "").toLowerCase() === "local";
+
+      const getEmptyMessage = () =>
+        String(args.empty_message || "No matches yet. Try another city or country.");
+
+      const getRecentLimit = () => {
+        const parsedLimit = Number(args.recent_limit);
+        if (Number.isFinite(parsedLimit) && parsedLimit > 0) {
+          return parsedLimit;
+        }
+        return isLocalOnlyMode() ? 8 : 4;
       };
 
       const ensurePortal = () => {
@@ -443,7 +523,7 @@
           currentResults = [];
           activeIndex = -1;
           scrollArea.innerHTML =
-            '<div class="skyline-search-empty">No matches yet. Try another city or country.</div>';
+            `<div class="skyline-search-empty">${escapeHtml(getEmptyMessage())}</div>`;
           setOpen(true);
           return;
         }
@@ -524,12 +604,13 @@
         const loweredQuery = query.trim().toLowerCase();
         return (Array.isArray(args.recent_searches) ? args.recent_searches : [])
           .map((item) => ({
+            ...item,
             label: String(item.label || item.query || "").trim(),
             meta: String(item.meta || "Recent search"),
             query: String(item.query || item.label || "").trim(),
             latitude: item.latitude,
             longitude: item.longitude,
-            isRecent: true,
+            isRecent: typeof item.isRecent === "boolean" ? item.isRecent : true,
             rank: 0,
           }))
           .filter((item) => item.label)
@@ -539,7 +620,7 @@
               item.label.toLowerCase().includes(loweredQuery) ||
               item.query.toLowerCase().includes(loweredQuery)
           )
-          .slice(0, 4);
+          .slice(0, getRecentLimit());
       };
 
       const mergeResults = (recentMatches, apiMatches) => {
@@ -595,6 +676,15 @@
             renderResults(recentMatches);
           } else {
             hideResults();
+          }
+          return;
+        }
+
+        if (isLocalOnlyMode()) {
+          if (recentMatches.length) {
+            renderResults(recentMatches);
+          } else {
+            renderResults([]);
           }
           return;
         }
@@ -795,6 +885,11 @@
           return;
         }
         args = event.data.args || {};
+        shell.classList.toggle("is-compact", args.compact === true);
+        shell.classList.toggle("is-decision", String(args.variant || "").toLowerCase() === "decision");
+        if (portal) {
+          portal.dataset.variant = String(args.variant || "").toLowerCase();
+        }
         input.placeholder = String(args.placeholder || "Search any city worldwide");
         syncInputFromArgs();
         maybePromptForLocation();

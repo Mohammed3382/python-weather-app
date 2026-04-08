@@ -2531,13 +2531,13 @@ def apply_theme(background_source):
             backdrop-filter: blur(16px);
         }}
         .intel-alert-banner {{
-            padding: 1rem 1.05rem;
-            margin: 0.15rem 0 1rem 0;
+            padding: 0.82rem 0.88rem;
+            margin: 0.02rem 0 0.72rem 0;
         }}
         .intel-alert-banner-grid {{
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.75rem;
+            gap: 0.6rem;
         }}
         .intel-alert-banner-grid > .intel-alert-banner-item:only-child {{
             grid-column: 1 / -1;
@@ -2546,9 +2546,9 @@ def apply_theme(background_source):
         .intel-alert-banner-item {{
             display: flex;
             align-items: flex-start;
-            gap: 0.8rem;
-            padding: 0.9rem 0.95rem;
-            border-radius: 22px;
+            gap: 0.72rem;
+            padding: 0.78rem 0.82rem;
+            border-radius: 20px;
             background: rgba(255,255,255,0.06);
             border: 1px solid rgba(255,255,255,0.08);
         }}
@@ -2574,24 +2574,24 @@ def apply_theme(background_source):
         }}
         .intel-alert-icon {{
             flex-shrink: 0;
-            width: 2.4rem;
-            height: 2.4rem;
+            width: 2.18rem;
+            height: 2.18rem;
             border-radius: 999px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 1rem;
+            font-size: 0.94rem;
             background: rgba(255,255,255,0.08);
             border: 1px solid rgba(255,255,255,0.1);
         }}
         .intel-alert-title {{
-            font-size: 1rem;
+            font-size: 0.96rem;
             font-weight: 700;
         }}
         .intel-alert-body {{
-            margin-top: 0.28rem;
-            font-size: 0.9rem;
-            line-height: 1.55;
+            margin-top: 0.22rem;
+            font-size: 0.86rem;
+            line-height: 1.45;
             opacity: 0.84;
         }}
         .intel-card {{
@@ -3071,9 +3071,18 @@ def apply_theme(background_source):
             border-radius: 18px;
             box-shadow: none;
         }}
+        div[data-testid="stVerticalBlock"] > div:has(.compare-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
+            margin-top: -0.72rem;
+            margin-bottom: 0.04rem;
+        }}
+        div[data-testid="stVerticalBlock"] > div:has(.compare-controls-anchor) + div[data-testid="stHorizontalBlock"] .stButton button {{
+            min-height: 2.95rem;
+            border-radius: 18px;
+            box-shadow: none;
+        }}
         div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
-            margin-top: -1.15rem;
-            margin-bottom: -0.22rem;
+            margin-top: -0.78rem;
+            margin-bottom: -0.08rem;
         }}
         div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] .stButton {{
             margin-top: 0;
@@ -3095,8 +3104,11 @@ def apply_theme(background_source):
                 font-size: 1.08rem !important;
             }}
             div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
-                margin-top: -0.9rem;
-                margin-bottom: -0.16rem;
+                margin-top: -0.62rem;
+                margin-bottom: -0.06rem;
+            }}
+            div[data-testid="stVerticalBlock"] > div:has(.compare-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
+                margin-top: -0.56rem;
             }}
         }}
         @media (max-width: 1220px) {{
@@ -3220,8 +3232,12 @@ def apply_theme(background_source):
                 top: -4.75rem;
             }}
             div[data-testid="stVerticalBlock"] > div:has(.trip-planner-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
-                margin-top: -0.68rem;
-                margin-bottom: -0.08rem;
+                margin-top: -0.5rem;
+                margin-bottom: 0;
+            }}
+            div[data-testid="stVerticalBlock"] > div:has(.compare-controls-anchor) + div[data-testid="stHorizontalBlock"] {{
+                margin-top: -0.42rem;
+                margin-bottom: 0.02rem;
             }}
             .stTabs [data-baseweb="tab-list"] {{
                 width: 100%;
@@ -4822,7 +4838,11 @@ def render_recommendation_card(title, kicker, items, style_variant="standard"):
         meta = str(item.get("meta") or "").strip()
         action_url = str(item.get("action_url") or "").strip()
         action_label = str(item.get("action_label") or "Open link").strip()
-        item_title = escape(str(item.get("title") or "Recommendation"))
+        item_title_raw = str(item.get("title") or "Recommendation").strip()
+        item_lead = str(item.get("emoji") or item.get("icon") or "").strip()
+        if item_lead and not item_title_raw.startswith(item_lead):
+            item_title_raw = f"{item_lead} {item_title_raw}".strip()
+        item_title = escape(item_title_raw)
         item_body = escape(str(item.get("body") or ""))
 
         meta_html = f'<div class="intel-recommend-item-meta">{escape(meta)}</div>' if meta else ""
