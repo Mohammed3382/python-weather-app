@@ -315,6 +315,7 @@
         .replace(/[^a-zA-Z0-9_-]/g, "-");
       const portalId = `skyline-search-portal-${frameToken}`;
       const styleId = `skyline-search-portal-style-${frameToken}`;
+      const cleanupKey = `__skylineSearchCleanup_${frameToken}`;
 
       let args = {};
       let debounceHandle = null;
@@ -326,6 +327,7 @@
       let scrollArea = null;
       let selectAllOnMouseUp = false;
       let activeFetchController = null;
+      let portalListenersBound = false;
       const queryCache = new Map();
 
       const postMessage = (type, payload = {}) => {
@@ -530,8 +532,10 @@
           hostDoc.head.appendChild(style);
         }
 
-        portal.innerHTML =
-          '<div class="skyline-search-dropdown"><div class="skyline-search-scroll" id="skyline-search-scroll"></div></div>';
+        if (!portal.querySelector(".skyline-search-dropdown")) {
+          portal.innerHTML =
+            '<div class="skyline-search-dropdown"><div class="skyline-search-scroll" id="skyline-search-scroll"></div></div>';
+        }
         scrollArea = portal.querySelector("#skyline-search-scroll");
       };
 
@@ -978,13 +982,38 @@
         setFrameHeight(104);
       };
 
+      if (hostWindow[cleanupKey]) {
+        hostWindow[cleanupKey]();
+      }
+
       ensurePortal();
-      scrollArea.addEventListener("pointerdown", handleScrollAreaPointerDown);
-      scrollArea.addEventListener("mousemove", handleScrollAreaMove);
+      if (!portalListenersBound && scrollArea) {
+        scrollArea.addEventListener("pointerdown", handleScrollAreaPointerDown);
+        scrollArea.addEventListener("mousemove", handleScrollAreaMove);
+        portalListenersBound = true;
+      }
       hostDoc.addEventListener("pointerdown", handleHostPointerDown, true);
       hostWindow.addEventListener("resize", handleWindowChange);
       hostWindow.addEventListener("scroll", handleWindowChange, true);
       window.addEventListener("message", handleRender);
+      hostWindow[cleanupKey] = () => {
+        if (scrollArea) {
+          scrollArea.removeEventListener("pointerdown", handleScrollAreaPointerDown);
+          scrollArea.removeEventListener("mousemove", handleScrollAreaMove);
+        }
+        hostDoc.removeEventListener("pointerdown", handleHostPointerDown, true);
+        hostWindow.removeEventListener("resize", handleWindowChange);
+        hostWindow.removeEventListener("scroll", handleWindowChange, true);
+        window.removeEventListener("message", handleRender);
+        if (portal && portal.parentNode) {
+          portal.parentNode.removeChild(portal);
+        }
+        portal = null;
+        scrollArea = null;
+        portalListenersBound = false;
+        hostWindow[cleanupKey] = null;
+      };
+      window.addEventListener("beforeunload", hostWindow[cleanupKey], { once: true });
 
       setComponentReady();
       setFrameHeight(104);
