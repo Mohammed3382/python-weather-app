@@ -540,17 +540,17 @@
           return;
         }
 
+        const frameRect = frameElement.getBoundingClientRect();
         const controlRect = shell.querySelector(".search-control")?.getBoundingClientRect();
         if (controlRect) {
-          const topOffset = controlRect.bottom + 8;
-          const leftOffset = controlRect.left;
+          const topOffset = frameRect.top + controlRect.bottom + 8;
+          const leftOffset = frameRect.left + controlRect.left;
           portal.style.top = `${Math.max(topOffset, 8)}px`;
           portal.style.left = `${Math.max(leftOffset, 8)}px`;
           portal.style.width = `${Math.max(controlRect.width, 260)}px`;
           return;
         }
 
-        const frameRect = frameElement.getBoundingClientRect();
         const topOffset = frameRect.bottom + 8;
         const leftOffset = frameRect.left;
         portal.style.top = `${Math.max(topOffset, 8)}px`;
